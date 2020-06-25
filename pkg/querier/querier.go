@@ -42,8 +42,6 @@ type AgentNetworkPolicyInfoQuerier interface {
 type ControllerNetworkPolicyInfoQuerier interface {
 	NetworkPolicyInfoQuerier
 	GetConnectedAgentNum() int
-	GetNetworkPolicies(namespace string, podName string) (applied []antreatypes.NetworkPolicy,
-		egress []antreatypes.NetworkPolicy, ingress []antreatypes.NetworkPolicy)
 }
 
 // GetSelfPod gets current pod.
