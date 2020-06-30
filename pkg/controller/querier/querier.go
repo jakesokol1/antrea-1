@@ -15,12 +15,11 @@
 package querier
 
 import (
-	antreatypes "github.com/vmware-tanzu/antrea/pkg/controller/types"
+	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/antrea/pkg/apis/clusterinformation/v1beta1"
-	"github.com/vmware-tanzu/antrea/pkg/apiserver/storage"
 	"github.com/vmware-tanzu/antrea/pkg/querier"
 )
 
@@ -33,28 +32,27 @@ var _ ControllerQuerier = new(controllerQuerier)
 //TODO: expand this interface similarly to AgentQuerier
 type ControllerQuerier interface {
 	GetControllerInfo(controllInfo *v1beta1.AntreaControllerInfo, partial bool)
-	QueryNetworkPolicies(namespace string, podName string) (applied []antreatypes.NetworkPolicy,
-		egress []antreatypes.NetworkPolicy, ingress []antreatypes.NetworkPolicy)
 }
 
 //TODO: implement interface methods
 type controllerQuerier struct {
 	networkPolicyInfoQuerier querier.ControllerNetworkPolicyInfoQuerier
-	internalNetworkPolicyStore storage.Interface
-	appliedToGroupStore storage.Interface
+	endpointQuerier     networkpolicy.EndpointQuerier
 	apiPort                  int
 }
 
 func NewControllerQuerier(networkPolicyInfoQuerier querier.ControllerNetworkPolicyInfoQuerier,
-	internalNetworkPolicyStore storage.Interface, appliedToGroupStore storage.Interface,
-	apiPort int) *controllerQuerier {
+	endPointQuerier networkpolicy.EndpointQuerier, apiPort int) *controllerQuerier {
 	return &controllerQuerier{networkPolicyInfoQuerier: networkPolicyInfoQuerier,
-		internalNetworkPolicyStore: internalNetworkPolicyStore, appliedToGroupStore: appliedToGroupStore,
-		apiPort: apiPort}
+		endpointQuerier: endPointQuerier, apiPort: apiPort}
 }
 
 func (cq controllerQuerier) getNetworkPolicyInfoQuerier() querier.ControllerNetworkPolicyInfoQuerier {
 	return cq.networkPolicyInfoQuerier
+}
+
+func (cq controllerQuerier) getEndpointQuerierReplier() networkpolicy.EndpointQuerier {
+	return cq.endpointQuerier
 }
 
 // getService gets current service.
@@ -97,37 +95,4 @@ func (cq controllerQuerier) GetControllerInfo(controllInfo *v1beta1.AntreaContro
 	}
 }
 
-//Query functions
-func (cq controllerQuerier) QueryNetworkPolicies(namespace string, podName string) (applied []antreatypes.NetworkPolicy,
-	egress []antreatypes.NetworkPolicy, ingress []antreatypes.NetworkPolicy) {
-	// grab list of all policies from internalNetworkPolicyStore
-	internalPolicies := cq.internalNetworkPolicyStore.List()
-	// create network policies categories
-	applied, egress, ingress = make([]antreatypes.NetworkPolicy, 0), make([]antreatypes.NetworkPolicy, 0),
-		make([]antreatypes.NetworkPolicy, 0)
-	// filter all policies into appropriate groups
-	for _, policy := range internalPolicies {
-		for _, key := range policy.(*antreatypes.NetworkPolicy).AppliedToGroups {
-			// Check if policy is applied to endpoint
-			//TODO: what is this boolean. what is this error?
-			appliedToGroupInterface, _, _ := cq.appliedToGroupStore.Get(key)
-			appliedToGroup := appliedToGroupInterface.(*antreatypes.AppliedToGroup)
-			// if appliedToGroup selects pod in namespace, append policy to applied category
-			for _, podSet := range appliedToGroup.PodsByNode {
-				for _, member := range podSet {
-					trialPodName, trialNamespace := member.Pod.Name, member.Pod.Namespace
-					if podName == trialPodName && namespace == trialNamespace {
-						applied = append(applied, *policy.(*antreatypes.NetworkPolicy))
-					}
-				}
-			}
-			// Check if policy defines an egress or ingress rule on endpoint
-			for _, rule := range policy.(*antreatypes.NetworkPolicy).Rules {
-				//TODO: figure out how to see if namespace, pod correlates with NetworkPolicyPeer
-				_, _ = rule.From, rule.To
-			}
-		}
-	}
 
-	return
-}

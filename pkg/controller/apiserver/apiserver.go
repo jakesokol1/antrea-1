@@ -16,10 +16,10 @@ package apiserver
 
 import (
 	"github.com/vmware-tanzu/antrea/pkg/controller/apiserver/handlers/endpoint"
-	"github.com/vmware-tanzu/antrea/pkg/controller/querier"
+	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 )
 
-func InstallHandlers(cq querier.ControllerQuerier, s *genericapiserver.GenericAPIServer) {
-	s.Handler.NonGoRestfulMux.HandleFunc("/endpoint", endpoint.HandleFunc(cq))
+func InstallHandlers(eq networkpolicy.EndpointQueryReplier, s *genericapiserver.GenericAPIServer) {
+	s.Handler.NonGoRestfulMux.HandleFunc("/endpoint", endpoint.HandleFunc(eq))
 }

@@ -20,7 +20,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware-tanzu/antrea/pkg/controller/apiserver/handlers/endpoint"
-	queriermock "github.com/vmware-tanzu/antrea/pkg/controller/querier/testing"
+	queriermock "github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy/testing"
 	antreatypes "github.com/vmware-tanzu/antrea/pkg/controller/types"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +29,7 @@ import (
 
 type TestCase struct {
 	// query arguments sent to handler function
-	handlerArgs     []string
+	handlerRequest  string
 	expectedStatus  int
 	// expected result written by handler function
 	expectedContent endpoint.Policies
@@ -73,45 +73,61 @@ var responses = []endpoint.Policies{
 	},
 }
 
-func TestIncompleteOrInvalidArguments(t *testing.T) {
+// TestIncompleteArguments tests how the handler function responds when the user passes in a query command
+// with incomplete arguments (for now, missing pod or namespace)
+func TestIncompleteArguments(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	defer mockCtrl.Finish()
 	// sample selector arguments (right now, only supports podname and namespace)
 	pod, namespace := "pod", "namespace"
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
-		"Responds with empty list given no name and no namespace": {
-			handlerArgs:           []string{"", ""},
-			expectedStatus:  http.StatusOK,
-			expectedContent: responses[0],
+		"Responds with error given no name and no namespace": {
+			handlerRequest:           "",
+			expectedStatus:  http.StatusBadRequest,
 			argsMock: []string{"", ""},
-			appliedMock: make([]antreatypes.NetworkPolicy, 0),
-			egressMock: make([]antreatypes.NetworkPolicy, 0),
-			ingressMock: make([]antreatypes.NetworkPolicy, 0),
 		},
-		"Responds with empty list given no name": {
-			handlerArgs:           []string{namespace, ""},
-			expectedStatus:  http.StatusOK,
-			expectedContent: responses[0],
+		"Responds with error given no name": {
+			handlerRequest:           "?namespace=namespace",
+			expectedStatus:  http.StatusBadRequest,
 			argsMock: []string{namespace, ""},
-			appliedMock: make([]antreatypes.NetworkPolicy, 0),
-			egressMock: make([]antreatypes.NetworkPolicy, 0),
-			ingressMock: make([]antreatypes.NetworkPolicy, 0),
 		},
-		"Responds with empty list given no namespace": {
-			handlerArgs:           []string{"", pod},
-			expectedStatus:  http.StatusOK,
-			expectedContent: responses[0],
+		"Responds with error given no namespace": {
+			handlerRequest:           "?pod=pod",
+			expectedStatus:  http.StatusBadRequest,
 			argsMock: []string{"", pod},
-			appliedMock: make([]antreatypes.NetworkPolicy, 0),
-			egressMock: make([]antreatypes.NetworkPolicy, 0),
-			ingressMock: make([]antreatypes.NetworkPolicy, 0),
 		},
 	}
 
 	evaluateTestCases(testCases, mockCtrl, t)
 
 }
+
+//TODO: need to differentiate the return from invalid and incomplete arguments to give correct instructions to user
+
+// TestInvalidArguments tests how the handler function responds when the user passes in a selector which does not select
+// any existing endpoint
+func TestInvalidArguments(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+	// sample selector arguments (right now, only supports podname and namespace)
+	pod, namespace := "pod", "namespace"
+	// outline test cases with expected behavior
+	testCases := map[string]TestCase{
+		"Responds with empty list given no invalid selection": {
+			handlerRequest:           "?namespace=namespace&pod=pod",
+			expectedStatus:  http.StatusBadRequest,
+			argsMock: []string{namespace, pod},
+			appliedMock: nil,
+			egressMock: nil,
+			ingressMock: nil,
+		},
+	}
+
+	evaluateTestCases(testCases, mockCtrl, t)
+
+}
+
 
 func TestSinglePolicyResponse(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
@@ -121,7 +137,7 @@ func TestSinglePolicyResponse(t *testing.T) {
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
 		"Responds with list of single element": {
-			handlerArgs:           []string{namespace, pod},
+			handlerRequest:           "?namespace=namespace&pod=pod",
 			expectedStatus:  http.StatusOK,
 			expectedContent: responses[1],
 			argsMock: []string{namespace, pod},
@@ -148,7 +164,7 @@ func TestMultiPolicyResponse(t *testing.T) {
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
 		"Responds with list of single element": {
-			handlerArgs:           []string{namespace, pod},
+			handlerRequest:           "?namespace=namespace&pod=pod",
 			expectedStatus:  http.StatusOK,
 			expectedContent: responses[2],
 			argsMock: []string{namespace, pod},
@@ -174,13 +190,13 @@ func TestMultiPolicyResponse(t *testing.T) {
 func evaluateTestCases(testCases map[string]TestCase, mockCtrl *gomock.Controller, t *testing.T) {
 	for k, tc := range testCases {
 		// create mock querier with expected behavior outlined in testCase
-		mockQuerier := queriermock.NewMockControllerQuerier(mockCtrl)
+		mockQuerier := queriermock.NewMockEndpointQuerier(mockCtrl)
 		mockQuerier.EXPECT().QueryNetworkPolicies(tc.argsMock[0], tc.argsMock[1]).Return(tc.appliedMock, tc.egressMock,
 			tc.ingressMock)
 		// initialize handler with mockQuerier
 		handler := endpoint.HandleFunc(mockQuerier)
 		// create http using handlerArgs and serve the http request
-		req, err := http.NewRequest(http.MethodGet, genHTTPRequest(tc.handlerArgs), nil)
+		req, err := http.NewRequest(http.MethodGet, tc.handlerRequest, nil)
 		assert.Nil(t, err)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, req)
@@ -194,22 +210,6 @@ func evaluateTestCases(testCases map[string]TestCase, mockCtrl *gomock.Controlle
 	}
 }
 
-func genHTTPRequest(args []string) (request string) {
-	request = ""
-	arg0, arg1 := "namespace=" + args[0], "pod=" + args[1]
-	if args[0] != "" {
-		request += "?" + arg0
-		if args[1] != "" {
-			request += "&&" + arg1
-			return request
-		}
-	} else {
-		if args[1] != "" {
-			request += "?" + arg1
-		}
-	}
-	return
-}
 
 func genSampleNetworkPolicies() (np1 antreatypes.NetworkPolicy, np2 antreatypes.NetworkPolicy,
 	np3 antreatypes.NetworkPolicy) {

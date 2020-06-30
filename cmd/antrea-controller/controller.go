@@ -88,7 +88,9 @@ func run(o *Options) error {
 		appliedToGroupStore,
 		networkPolicyStore)
 
-	controllerQuerier := querier.NewControllerQuerier(networkPolicyController, networkPolicyStore, appliedToGroupStore,
+	endpointQueryReplier := networkpolicy.NewEndpointQueryReplier(addressGroupStore, appliedToGroupStore, networkPolicyStore)
+
+	controllerQuerier := querier.NewControllerQuerier(networkPolicyController, endpointQueryReplier,
 		o.config.APIPort)
 
 	controllerMonitor := monitor.NewControllerMonitor(crdClient, nodeInformer, controllerQuerier)
@@ -116,7 +118,7 @@ func run(o *Options) error {
 		return fmt.Errorf("error creating API server: %v", err)
 	}
 	// install handlers for query functionality onto apiServer
-	queryapiserver.InstallHandlers(controllerQuerier, apiServer.GenericAPIServer)
+	queryapiserver.InstallHandlers(*endpointQueryReplier, apiServer.GenericAPIServer)
 
 	// Set up signal capture: the first SIGTERM / SIGINT signal is handled gracefully and will
 	// cause the stopCh channel to be closed; if another signal is received before the program

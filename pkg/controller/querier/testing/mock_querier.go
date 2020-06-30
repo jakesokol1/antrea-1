@@ -22,7 +22,6 @@ package testing
 import (
 	gomock "github.com/golang/mock/gomock"
 	v1beta1 "github.com/vmware-tanzu/antrea/pkg/apis/clusterinformation/v1beta1"
-	types "github.com/vmware-tanzu/antrea/pkg/controller/types"
 	reflect "reflect"
 )
 
@@ -59,20 +58,4 @@ func (m *MockControllerQuerier) GetControllerInfo(arg0 *v1beta1.AntreaController
 func (mr *MockControllerQuerierMockRecorder) GetControllerInfo(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetControllerInfo", reflect.TypeOf((*MockControllerQuerier)(nil).GetControllerInfo), arg0, arg1)
-}
-
-// QueryNetworkPolicies mocks base method
-func (m *MockControllerQuerier) QueryNetworkPolicies(arg0, arg1 string) ([]types.NetworkPolicy, []types.NetworkPolicy, []types.NetworkPolicy) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "QueryNetworkPolicies", arg0, arg1)
-	ret0, _ := ret[0].([]types.NetworkPolicy)
-	ret1, _ := ret[1].([]types.NetworkPolicy)
-	ret2, _ := ret[2].([]types.NetworkPolicy)
-	return ret0, ret1, ret2
-}
-
-// QueryNetworkPolicies indicates an expected call of QueryNetworkPolicies
-func (mr *MockControllerQuerierMockRecorder) QueryNetworkPolicies(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryNetworkPolicies", reflect.TypeOf((*MockControllerQuerier)(nil).QueryNetworkPolicies), arg0, arg1)
 }
