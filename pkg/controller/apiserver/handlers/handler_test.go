@@ -16,12 +16,14 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy"
+	v1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware-tanzu/antrea/pkg/controller/apiserver/handlers/endpoint"
 	queriermock "github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy/testing"
-	antreatypes "github.com/vmware-tanzu/antrea/pkg/controller/types"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,44 +34,45 @@ type TestCase struct {
 	handlerRequest  string
 	expectedStatus  int
 	// expected result written by handler function
-	expectedContent endpoint.Policies
+	expectedContent *networkpolicy.EndpointQueryResponse
+
 	// arguments of call to mock
 	argsMock       []string
 	// results of call to mock
-	appliedMock    []antreatypes.NetworkPolicy
-	egressMock     []antreatypes.NetworkPolicy
-	ingressMock    []antreatypes.NetworkPolicy
+	mockQueryResponse    *networkpolicy.EndpointQueryResponse
 }
 
-var responses = []endpoint.Policies{
+var responses = []*networkpolicy.EndpointQueryResponse{
 	{
-		Applied: []antreatypes.NetworkPolicy{},
-		Egress: []antreatypes.NetworkPolicy{},
-		Ingress: []antreatypes.NetworkPolicy{},
+		Endpoints: nil,
+		Error:     errors.NewNotFound(v1.Resource("pod"), "pod"),
 	},
 	{
-		Applied: []antreatypes.NetworkPolicy{
+		Endpoints: []networkpolicy.Endpoint{
 			{
-				SpanMeta:  antreatypes.SpanMeta{},
-				Name:      "policy1",
+				Policies: []networkpolicy.Policy{
+					{
+						PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
+					},
+				},
 			},
 		},
-		Egress: []antreatypes.NetworkPolicy{},
-		Ingress: []antreatypes.NetworkPolicy{},
+		Error: nil,
 	},
 	{
-		Applied: []antreatypes.NetworkPolicy{
+		Endpoints: []networkpolicy.Endpoint{
 			{
-				SpanMeta:  antreatypes.SpanMeta{},
-				Name:      "policy1",
-			},
-			{
-				SpanMeta:  antreatypes.SpanMeta{},
-				Name:      "policy2",
+				Policies: []networkpolicy.Policy{
+					{
+						PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
+					},
+					{
+						PolicyRef: networkpolicy.PolicyRef{Name: "policy2"},
+					},
+				},
 			},
 		},
-		Egress: []antreatypes.NetworkPolicy{},
-		Ingress: []antreatypes.NetworkPolicy{},
+		Error: nil,
 	},
 }
 
@@ -114,13 +117,14 @@ func TestInvalidArguments(t *testing.T) {
 	pod, namespace := "pod", "namespace"
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
-		"Responds with empty list given no invalid selection": {
+		"Responds with error given no invalid selection": {
 			handlerRequest:           "?namespace=namespace&pod=pod",
-			expectedStatus:  http.StatusBadRequest,
+			expectedStatus:  http.StatusNotFound,
 			argsMock: []string{namespace, pod},
-			appliedMock: nil,
-			egressMock: nil,
-			ingressMock: nil,
+			mockQueryResponse: &networkpolicy.EndpointQueryResponse{
+				Endpoints: nil,
+				Error:     errors.NewNotFound(v1.Resource("pod"), "pod"),
+			},
 		},
 	}
 
@@ -141,14 +145,16 @@ func TestSinglePolicyResponse(t *testing.T) {
 			expectedStatus:  http.StatusOK,
 			expectedContent: responses[1],
 			argsMock: []string{namespace, pod},
-			appliedMock: []antreatypes.NetworkPolicy{
+			mockQueryResponse: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
 				{
-					SpanMeta:  antreatypes.SpanMeta{},
-					Name:      "policy1",
+					Policies: []networkpolicy.Policy{
+						{
+							PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
+						},
+					},
 				},
 			},
-			egressMock: make([]antreatypes.NetworkPolicy, 0),
-			ingressMock: make([]antreatypes.NetworkPolicy, 0),
+			},
 		},
 	}
 
@@ -168,18 +174,18 @@ func TestMultiPolicyResponse(t *testing.T) {
 			expectedStatus:  http.StatusOK,
 			expectedContent: responses[2],
 			argsMock: []string{namespace, pod},
-			appliedMock: []antreatypes.NetworkPolicy{
+			mockQueryResponse: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
 				{
-					SpanMeta:  antreatypes.SpanMeta{},
-					Name:      "policy1",
+					Policies: []networkpolicy.Policy{
+						{
+							PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
+						},
+						{
+							PolicyRef: networkpolicy.PolicyRef{Name: "policy2"},
+						},
+					},
 				},
-				{
-					SpanMeta:   antreatypes.SpanMeta{},
-					Name:      "policy2",
-				},
-			},
-			egressMock: make([]antreatypes.NetworkPolicy, 0),
-			ingressMock: make([]antreatypes.NetworkPolicy, 0),
+			}},
 		},
 	}
 
@@ -188,11 +194,12 @@ func TestMultiPolicyResponse(t *testing.T) {
 }
 
 func evaluateTestCases(testCases map[string]TestCase, mockCtrl *gomock.Controller, t *testing.T) {
-	for k, tc := range testCases {
+	for _, tc := range testCases {
 		// create mock querier with expected behavior outlined in testCase
 		mockQuerier := queriermock.NewMockEndpointQuerier(mockCtrl)
-		mockQuerier.EXPECT().QueryNetworkPolicies(tc.argsMock[0], tc.argsMock[1]).Return(tc.appliedMock, tc.egressMock,
-			tc.ingressMock)
+		if tc.expectedStatus != http.StatusBadRequest {
+			mockQuerier.EXPECT().QueryNetworkPolicies(tc.argsMock[0], tc.argsMock[1]).Return(tc.mockQueryResponse)
+		}
 		// initialize handler with mockQuerier
 		handler := endpoint.HandleFunc(mockQuerier)
 		// create http using handlerArgs and serve the http request
@@ -200,33 +207,16 @@ func evaluateTestCases(testCases map[string]TestCase, mockCtrl *gomock.Controlle
 		assert.Nil(t, err)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, req)
-		// check http status
-		assert.Equal(t, tc.expectedStatus, recorder.Code, k)
+		assert.Equal(t, tc.expectedStatus, recorder.Code)
+		if tc.expectedStatus != http.StatusOK {
+			return
+		}
 		// check response is expected
-		var received endpoint.Policies
+		var received networkpolicy.EndpointQueryResponse
 		err = json.Unmarshal(recorder.Body.Bytes(), &received)
 		assert.Nil(t, err)
-		assert.Equal(t, tc.expectedContent, received)
+		for i, policy := range tc.expectedContent.Endpoints[0].Policies {
+			assert.Equal(t, policy.Name, received.Endpoints[0].Policies[i].Name)
+		}
 	}
-}
-
-
-func genSampleNetworkPolicies() (np1 antreatypes.NetworkPolicy, np2 antreatypes.NetworkPolicy,
-	np3 antreatypes.NetworkPolicy) {
-	np1 = antreatypes.NetworkPolicy{
-		SpanMeta:        antreatypes.SpanMeta{},
-		UID:             "np1",
-		Name:            "np1",
-	}
-	np2 = antreatypes.NetworkPolicy{
-		SpanMeta:        antreatypes.SpanMeta{},
-		UID:             "np2",
-		Name:            "np2",
-	}
-	np3 = antreatypes.NetworkPolicy{
-		SpanMeta:        antreatypes.SpanMeta{},
-		UID:             "np3",
-		Name:            "np3",
-	}
-	return
 }

@@ -21,7 +21,7 @@ package testing
 
 import (
 	gomock "github.com/golang/mock/gomock"
-	types "github.com/vmware-tanzu/antrea/pkg/controller/types"
+	networkpolicy "github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy"
 	reflect "reflect"
 )
 
@@ -49,13 +49,11 @@ func (m *MockEndpointQuerier) EXPECT() *MockEndpointQuerierMockRecorder {
 }
 
 // QueryNetworkPolicies mocks base method
-func (m *MockEndpointQuerier) QueryNetworkPolicies(arg0, arg1 string) ([]types.NetworkPolicy, []types.NetworkPolicy, []types.NetworkPolicy) {
+func (m *MockEndpointQuerier) QueryNetworkPolicies(arg0, arg1 string) *networkpolicy.EndpointQueryResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "QueryNetworkPolicies", arg0, arg1)
-	ret0, _ := ret[0].([]types.NetworkPolicy)
-	ret1, _ := ret[1].([]types.NetworkPolicy)
-	ret2, _ := ret[2].([]types.NetworkPolicy)
-	return ret0, ret1, ret2
+	ret0, _ := ret[0].(*networkpolicy.EndpointQueryResponse)
+	return ret0
 }
 
 // QueryNetworkPolicies indicates an expected call of QueryNetworkPolicies

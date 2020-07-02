@@ -15,19 +15,23 @@
 package networkpolicy
 
 import (
+	"context"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"testing"
+	"time"
 )
-
 // pods represent kubernetes pods for testing proper query results
 var pods = []v1.Pod{
 	{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "podA",
-			Namespace: "nsA",
-			Labels:    map[string]string{"group": "appliedTo"},
+			Namespace: "testNamespace",
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{{
@@ -48,8 +52,7 @@ var pods = []v1.Pod{
 	{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "podB",
-			Namespace: "nsB",
-			Labels:    map[string]string{"group": "appliedTo"},
+			Namespace: "testNamespace",
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{{
@@ -67,9 +70,7 @@ var pods = []v1.Pod{
 			PodIP: "1.2.3.4",
 		},
 	},
-
 }
-
 // polices represent kubernetes policies for testing proper query results
 //
 // policy 0: select all pods and deny default ingress
@@ -99,118 +100,92 @@ var policies = []networkingv1.NetworkPolicy{
 		},
 	},
 }
+
+var namespaces = []v1.Namespace{
+	{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:                       "testNamespace",
+			UID:                        "testNamespaceUID",
+		},
+	},
+}
+
+func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkPolicyController, *EndpointQueryReplier){
+	// create controller
+	_, controller := newController(objects...)
+	// create querier with stores inside controller
+	address, appliedToGroup, policy, podInformer := controller.addressGroupStore, controller.appliedToGroupStore, controller.internalNetworkPolicyStore, controller.podInformer
+	querier := NewEndpointQueryReplier(address, appliedToGroup, policy, podInformer)
+
+	return controller, querier
+}
+
 // TestInvalidSelector tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) does not
 // select any pods
 func TestInvalidSelector(t *testing.T) {
-	// create controller
-	_, controller := newController()
-	// create querier with stores inside controller
-	address, appliedToGroup, policy := controller.addressGroupStore, controller.appliedToGroupStore, controller.internalNetworkPolicyStore
-	endpointQuerier := EndpointQueryReplier{address, appliedToGroup, policy}
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier()
 	// test appropriate response to QueryNetworkPolices
 	namespace, pod := "non-existing-namespace", "non-existing-pod"
-	applied, egress, ingress := endpointQuerier.QueryNetworkPolicies(namespace, pod)
-	if applied != nil || egress != nil || ingress != nil {
-		t.Error("policies should be nil for invalid selector")
-	}
+	response := endpointQuerier.QueryNetworkPolicies(namespace, pod)
+
+	assert.Equal(t, errors.NewNotFound(v1.Resource("pod"), pod), response.Error, "expected not found error")
 }
 
 // TestSingleAppliedPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects a
 // pod which has a single networkpolicy object applied to it
 func TestSingleAppliedPolicy(t *testing.T) {
-	// create controller
-	_, controller := newController()
-	// create querier with stores inside controller
-	address, appliedToGroup, policy := controller.addressGroupStore, controller.appliedToGroupStore, controller.internalNetworkPolicyStore
-	endpointQuerier := EndpointQueryReplier{address, appliedToGroup, policy}
-	// add pods and policies
-	controller.addPod(&pods[0])
-	controller.addPod(&pods[1])
-	controller.addNetworkPolicy(&policies[0])
-	namespace1, pod1 := "nsA", "podA"
-	namespace2, pod2 := "nsB", "podB"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	applied1, _, _ := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
-	applied2, _, _ := endpointQuerier.QueryNetworkPolicies(namespace2, pod2)
+	controller, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0])
 
-	if len(applied1) != 1 || applied1[0].Name != "default-deny-ingress" {
-		t.Error("invalid return from querier")
-	}
+	controller.informerFactory.Start(ctx.Done())
+	controller.crdInformerFactory.Start(ctx.Done())
 
-	if len(applied2) != 1 || applied2[0].Name != "default-deny-ingress" {
-		t.Error("invalid return from querier")
-	}
+	go controller.NetworkPolicyController.Run(ctx.Done())
+
+	time.Sleep(2 * time.Second)
+
+	namespace1, pod1 := "testNamespace", "podA"
+	response1 := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
+	require.Equal(t, nil, response1.Error)
+
+	assert.Equal(t, response1.Endpoints[0].Policies[0].PolicyRef.Name, "default-deny-ingress")
 }
 
 // TestSingleEgressPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
 // a pod which has a single networkpolicy which defines an egress policy from it.
 func TestSingleEgressPolicy(t *testing.T) {
-	// create controller
-	_, controller := newController()
-	// create querier with stores inside controller
-	address, appliedToGroup, policy := controller.addressGroupStore, controller.appliedToGroupStore, controller.internalNetworkPolicyStore
-	endpointQuerier := EndpointQueryReplier{address, appliedToGroup, policy}
-	// add pods and policies
-	controller.addPod(&pods[0])
-	controller.addPod(&pods[1])
-	controller.addNetworkPolicy(&policies[1])
-	namespace1, pod1 := "nsA", "podA"
-	namespace2, pod2 := "nsB", "podB"
-	_, egress1, _ := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
-	_, egress2, _ := endpointQuerier.QueryNetworkPolicies(namespace2, pod2)
-
-	if len(egress1) != 1 || egress1[0].Name != "default-deny-egress" {
-		t.Error("invalid return from querier")
-	}
-
-	if len(egress2) != 1 || egress2[0].Name != "default-deny-egress" {
-		t.Error("invalid return from querier")
-	}
+	assert.Fail(t, "unimplemented")
 }
 
 // TestSingleIngressPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
 // a pod which has a single networkpolicy which defines an ingress policy from it.
 func TestSingleIngressPolicy(t *testing.T) {
-	// create controller
-	_, controller := newController()
-	// create querier with stores inside controller
-	address, appliedToGroup, policy := controller.addressGroupStore, controller.appliedToGroupStore, controller.internalNetworkPolicyStore
-	endpointQuerier := EndpointQueryReplier{address, appliedToGroup, policy}
-	// add pods and policies
-	controller.addPod(&pods[0])
-	controller.addPod(&pods[1])
-	controller.addNetworkPolicy(&policies[1])
-	namespace1, pod1 := "nsA", "podA"
-	namespace2, pod2 := "nsB", "podB"
-	_, egress1, _ := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
-	_, egress2, _ := endpointQuerier.QueryNetworkPolicies(namespace2, pod2)
-
-	if len(egress1) != 1 || egress1[0].Name != "default-deny-ingress" {
-		t.Error("invalid return from querier")
-	}
-
-	if len(egress2) != 1 || egress2[0].Name != "default-deny-ingress" {
-		t.Error("invalid return from querier")
-	}
+	assert.Fail(t, "unimplemented")
 }
 
 // TestMultiplePolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
 // a pod which has multiple networkpolicies which define policies on it.
 func TestMultiplePolicy(t *testing.T) {
-	// create controller
-	_, controller := newController()
-	// create querier with stores inside controller
-	address, appliedToGroup, policy := controller.addressGroupStore, controller.appliedToGroupStore, controller.internalNetworkPolicyStore
-	endpointQuerier := EndpointQueryReplier{address, appliedToGroup, policy}
-	// add pods and policies
-	controller.addPod(&pods[0])
-	controller.addNetworkPolicy(&policies[0])
-	controller.addNetworkPolicy(&policies[1])
-	namespace1, pod1 := "nsA", "podA"
-	applied, _, _ := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	if len(applied) != 2 || (applied[0].Name != "default-deny-egress" && applied[0].Name != "default-deny-ingress") ||
-		(applied[1].Name != "default-deny-egress" && applied[1].Name != "default-deny-ingress") {
-		t.Error("invalid return from querier")
-	}
+	controller, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0], &policies[1])
+
+	controller.informerFactory.Start(ctx.Done())
+	controller.crdInformerFactory.Start(ctx.Done())
+
+	go controller.NetworkPolicyController.Run(ctx.Done())
+
+	time.Sleep(2 * time.Second)
+
+	namespace1, pod1 := "testNamespace", "podA"
+	response := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
+	require.Equal(t, nil, response.Error)
+
+	assert.True(t, response.Endpoints[0].Policies[0].Name == "default-deny-egress" ||
+		response.Endpoints[0].Policies[0].Name == "default-deny-ingress")
+	assert.True(t, response.Endpoints[0].Policies[1].Name == "default-deny-egress" ||
+		response.Endpoints[0].Policies[1].Name == "default-deny-ingress")
 }
