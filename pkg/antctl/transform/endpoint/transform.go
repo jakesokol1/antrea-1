@@ -17,7 +17,7 @@ package endpoint
 import (
 	"github.com/vmware-tanzu/antrea/pkg/antctl/transform"
 	"github.com/vmware-tanzu/antrea/pkg/antctl/transform/common"
-	"github.com/vmware-tanzu/antrea/pkg/controller/apiserver/handlers/endpoint"
+	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy"
 	"io"
 	"reflect"
 )
@@ -31,9 +31,12 @@ type Response struct {
 }
 
 func objectTransform(o interface{}) (interface{}, error) {
-	policies := o.(*endpoint.Policies)
+	endpointQueryResponse := o.(*networkpolicy.EndpointQueryResponse)
+	if endpointQueryResponse.Error != nil {
+		return nil, endpointQueryResponse.Error
+	}
 	responses := make([]Response, 0)
-	for _, policy := range policies.Applied {
+	for _, policy := range endpointQueryResponse.Endpoints[0].Policies {
 		response := Response{
 			Applied: Policy{
 				Name: policy.Name,
@@ -51,8 +54,8 @@ func listTransform(l interface{}) (interface{}, error) {
 
 func Transform(reader io.Reader, single bool) (interface{}, error) {
 	return transform.GenericFactory(
-		reflect.TypeOf(endpoint.Policies{}),
-		reflect.TypeOf(endpoint.Policies{}),
+		reflect.TypeOf(networkpolicy.EndpointQueryResponse{}),
+		reflect.TypeOf(networkpolicy.EndpointQueryResponse{}),
 		objectTransform,
 		listTransform,
 	)(reader, single)

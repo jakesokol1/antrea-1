@@ -19,14 +19,18 @@
 package networkpolicy
 
 import (
+	networkingv1beta1 "github.com/vmware-tanzu/antrea/pkg/apis/networking/v1beta1"
 	"github.com/vmware-tanzu/antrea/pkg/apiserver/storage"
+	v1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 
 	antreatypes "github.com/vmware-tanzu/antrea/pkg/controller/types"
 )
 
 type EndpointQuerier interface {
-	QueryNetworkPolicies(namespace string, podName string) (applied []antreatypes.NetworkPolicy,
-		egress []antreatypes.NetworkPolicy, ingress []antreatypes.NetworkPolicy)
+	QueryNetworkPolicies(namespace string, podName string) *EndpointQueryResponse
 }
 
 // EndpointQueryReplier is responsible for handling query requests from antctl query
@@ -37,33 +41,80 @@ type EndpointQueryReplier struct {
 	appliedToGroupStore storage.Interface
 	// internalNetworkPolicyStore is the storage where the populated internal Network Policy are stored.
 	internalNetworkPolicyStore storage.Interface
+	// podInformer is used to check existence of a selected pod
+	podInformer coreinformers.PodInformer
 }
 
+// EndpointQueryResponse is the reply struct for QueryNetworkPolicies
+type EndpointQueryResponse struct {
+	Endpoints []Endpoint
+	Error error
+}
+
+// Endpoint holds response information for an endpoint following a query
+type Endpoint struct {
+	Namespace string
+	Name string
+	Policies []Policy
+	Rules []Rule
+}
+
+type PolicyRef struct {
+	Namespace string
+	Name string
+	UID types.UID
+}
+
+// Policy holds network policy information to be relayed to client following query endpoint
+type Policy struct {
+	PolicyRef
+	selector metav1.LabelSelector
+}
+
+// Rule holds
+type Rule struct {
+	PolicyRef
+	Direction networkingv1beta1.Direction
+	RuleIndex int
+	Ports []v1.NetworkPolicyPort
+}
 
 // NewNetworkPolicyController returns a new *NetworkPolicyController.
 func NewEndpointQueryReplier(
 	addressGroupStore storage.Interface,
 	appliedToGroupStore storage.Interface,
-	internalNetworkPolicyStore storage.Interface) *EndpointQueryReplier {
+	internalNetworkPolicyStore storage.Interface,
+	podInformer coreinformers.PodInformer) *EndpointQueryReplier {
 	n := &EndpointQueryReplier{
 		addressGroupStore:          addressGroupStore,
 		appliedToGroupStore:        appliedToGroupStore,
 		internalNetworkPolicyStore: internalNetworkPolicyStore,
+		podInformer: podInformer,
 	}
 	return n
 }
 
 //Query functions
-func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName string) (applied []antreatypes.NetworkPolicy,
-	egress []antreatypes.NetworkPolicy, ingress []antreatypes.NetworkPolicy) {
+func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName string) *EndpointQueryResponse {
+	// check if namespace and podName select an existing pod
+	_, err := eq.podInformer.Lister().Pods(namespace).Get(podName)
+	// TODO: how to make sure that I handle correct error
+	if err != nil {
+		return &EndpointQueryResponse{
+			Endpoints: nil,
+			Error:     err,
+		}
+	}
 	// grab list of all policies from internalNetworkPolicyStore
 	internalPolicies := eq.internalNetworkPolicyStore.List()
 	// create network policies categories
-	applied, egress, ingress = make([]antreatypes.NetworkPolicy, 0), make([]antreatypes.NetworkPolicy, 0),
+	applied, _, _ := make([]antreatypes.NetworkPolicy, 0), make([]antreatypes.NetworkPolicy, 0),
 		make([]antreatypes.NetworkPolicy, 0)
 	// filter all policies into appropriate groups
 	for _, policy := range internalPolicies {
-		for _, key := range policy.(*antreatypes.NetworkPolicy).AppliedToGroups {
+		antreaPolicy := policy.(*antreatypes.NetworkPolicy)
+		println(antreaPolicy.Name)
+		for _, key := range antreaPolicy.AppliedToGroups {
 			// Check if policy is applied to endpoint
 			//TODO: what is this boolean. what is this error?
 			appliedToGroupInterface, _, _ := eq.appliedToGroupStore.Get(key)
@@ -72,6 +123,7 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 			for _, podSet := range appliedToGroup.PodsByNode {
 				for _, member := range podSet {
 					trialPodName, trialNamespace := member.Pod.Name, member.Pod.Namespace
+					println(trialPodName)
 					if podName == trialPodName && namespace == trialNamespace {
 						applied = append(applied, *policy.(*antreatypes.NetworkPolicy))
 					}
@@ -84,6 +136,27 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 			}
 		}
 	}
+	// make response policies
+	responsePolicies := make([]Policy, 0)
+	for _, internalPolicy := range applied {
+		responsePolicy := Policy{
+			PolicyRef: PolicyRef{
+				Namespace: internalPolicy.Namespace,
+				Name:      internalPolicy.Name,
+				UID:       internalPolicy.UID,
+			},
+		}
+		responsePolicies = append(responsePolicies, responsePolicy)
+	}
+	// make rules
+	responseRules := make([]Rule, 0)
+	// endpoint
+	endpoint := Endpoint{
+		Namespace: namespace,
+		Name:      podName,
+		Policies:  responsePolicies,
+		Rules:     responseRules,
+	}
 
-	return
+	return &EndpointQueryResponse{[]Endpoint{endpoint}, nil}
 }

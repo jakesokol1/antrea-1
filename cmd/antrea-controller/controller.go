@@ -85,7 +85,8 @@ func run(o *Options) error {
 		appliedToGroupStore,
 		networkPolicyStore)
 
-	endpointQueryReplier := networkpolicy.NewEndpointQueryReplier(addressGroupStore, appliedToGroupStore, networkPolicyStore)
+	endpointQueryReplier := networkpolicy.NewEndpointQueryReplier(addressGroupStore, appliedToGroupStore,
+		networkPolicyStore, podInformer)
 
 	controllerQuerier := querier.NewControllerQuerier(networkPolicyController, endpointQueryReplier,
 		o.config.APIPort)

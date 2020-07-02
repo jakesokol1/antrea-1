@@ -17,16 +17,8 @@ package endpoint
 import (
 	"encoding/json"
 	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy"
-	"github.com/vmware-tanzu/antrea/pkg/controller/types"
 	"net/http"
 )
-
-// Policies describes the policies relevant to a certain endpoint
-type Policies struct {
-	Applied []types.NetworkPolicy `json:"applied"`
-	Egress  []types.NetworkPolicy `json:"egress"`
-	Ingress []types.NetworkPolicy `json:"ingress"`
-}
 
 // HandleFunc creates a http.HandlerFunc which uses an AgentNetworkPolicyInfoQuerier
 // to query network policy rules in current agent.
@@ -34,32 +26,20 @@ func HandleFunc(eq networkpolicy.EndpointQuerier) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		podName := r.URL.Query().Get("pod")
 		namespace := r.URL.Query().Get("namespace")
-		//TODO: differentiate errors between incomplete and invalid arguments, implement http error handling
-		applied, egress, ingress := eq.QueryNetworkPolicies(namespace, podName)
-
-		policies := Policies{
-			Applied: applied,
-			Egress:  egress,
-			Ingress: ingress,
+		// check for incomplete arguments
+		if podName == "" || namespace == "" {
+			http.Error(w, "namespace and pod must be provided", http.StatusBadRequest)
+			return
 		}
-
-		if err := json.NewEncoder(w).Encode(policies); err != nil {
+		// query endpoint and handle response errors
+		endpointQueryResponse := eq.QueryNetworkPolicies(namespace, podName)
+		if endpointQueryResponse.Error != nil {
+			//TODO: need to address errors here which are not resource not found errors
+			http.Error(w, endpointQueryResponse.Error.Error(), http.StatusNotFound)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(endpointQueryResponse); err != nil {
 			http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
 		}
-	}
-}
-
-func printPoliciesForDebugging(policies Policies) {
-	println("Applied policies:")
-	for _, policy := range policies.Applied {
-		println(policy.Name)
-	}
-	println("Egress policies:")
-	for _, policy := range policies.Egress {
-		println(policy.Name)
-	}
-	println("Ingress policies:")
-	for _, policy := range policies.Ingress {
-		println(policy.Name)
 	}
 }

@@ -326,7 +326,7 @@ var CommandList = &commandList{
 			long:    "TODO",
 			//TODO: fill in examples
 			example:      "TODO",
-			commandGroup: get,
+			commandGroup: query,
 			controllerEndpoint: &endpoint{
 				nonResourceEndpoint: &nonResourceEndpoint{
 					path: "/endpoint",
