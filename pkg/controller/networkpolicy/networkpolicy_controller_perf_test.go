@@ -128,17 +128,7 @@ func TestInitXLargeScaleWithSmallNamespaces(t *testing.T) {
 }
 
 func testComputeNetworkPolicy(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod) {
-	objs := make([]runtime.Object, 0, len(namespaces)+len(networkPolicies)+len(pods))
-	for i := range namespaces {
-		objs = append(objs, namespaces[i])
-	}
-	for i := range networkPolicies {
-		objs = append(objs, networkPolicies[i])
-	}
-	for i := range pods {
-		objs = append(objs, pods[i])
-	}
-
+	objs := toRunTimeObjects(namespaces, networkPolicies, pods)
 	_, c := newController(objs...)
 	c.heartbeatCh = make(chan heartbeat, 1000)
 
@@ -275,4 +265,18 @@ func getXObjects(x int, getObjectsFunc func() ([]*v1.Namespace, []*networkingv1.
 		pods = append(pods, newPods...)
 	}
 	return namespaces, networkPolicies, pods
+}
+
+func toRunTimeObjects(namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod) (objs []runtime.Object) {
+	objs = make([]runtime.Object, 0, len(namespaces)+len(networkPolicies)+len(pods))
+	for i := range namespaces {
+		objs = append(objs, namespaces[i])
+	}
+	for i := range networkPolicies {
+		objs = append(objs, networkPolicies[i])
+	}
+	for i := range pods {
+		objs = append(objs, pods[i])
+	}
+	return
 }

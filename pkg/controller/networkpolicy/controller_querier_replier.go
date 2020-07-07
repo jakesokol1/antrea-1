@@ -113,7 +113,6 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	// filter all policies into appropriate groups
 	for _, policy := range internalPolicies {
 		antreaPolicy := policy.(*antreatypes.NetworkPolicy)
-		println(antreaPolicy.Name)
 		for _, key := range antreaPolicy.AppliedToGroups {
 			// Check if policy is applied to endpoint
 			//TODO: what is this boolean. what is this error?
@@ -123,7 +122,6 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 			for _, podSet := range appliedToGroup.PodsByNode {
 				for _, member := range podSet {
 					trialPodName, trialNamespace := member.Pod.Name, member.Pod.Namespace
-					println(trialPodName)
 					if podName == trialPodName && namespace == trialNamespace {
 						applied = append(applied, *policy.(*antreatypes.NetworkPolicy))
 					}
