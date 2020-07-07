@@ -32,10 +32,10 @@ func HandleFunc(eq networkpolicy.EndpointQuerier) http.HandlerFunc {
 			return
 		}
 		// query endpoint and handle response errors
-		endpointQueryResponse := eq.QueryNetworkPolicies(namespace, podName)
-		if endpointQueryResponse.Error != nil {
+		endpointQueryResponse, err := eq.QueryNetworkPolicies(namespace, podName)
+		if err != nil {
 			//TODO: need to address errors here which are not resource not found errors
-			http.Error(w, endpointQueryResponse.Error.Error(), http.StatusNotFound)
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 		if err := json.NewEncoder(w).Encode(endpointQueryResponse); err != nil {

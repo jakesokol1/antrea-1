@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 )
+
 // pods represent kubernetes pods for testing proper query results
 var pods = []v1.Pod{
 	{
@@ -71,6 +72,7 @@ var pods = []v1.Pod{
 		},
 	},
 }
+
 // polices represent kubernetes policies for testing proper query results
 //
 // policy 0: select all pods and deny default ingress
@@ -90,7 +92,7 @@ var policies = []networkingv1.NetworkPolicy{
 	},
 	{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: 		"default-deny-egress",
+			Name: "default-deny-egress",
 		},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{},
@@ -104,18 +106,25 @@ var policies = []networkingv1.NetworkPolicy{
 var namespaces = []v1.Namespace{
 	{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:                       "testNamespace",
-			UID:                        "testNamespaceUID",
+			Name: "testNamespace",
+			UID:  "testNamespaceUID",
 		},
 	},
 }
 
-func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkPolicyController, *EndpointQueryReplier){
+func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkPolicyController, *EndpointQueryReplier) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// create controller
 	_, controller := newController(objects...)
 	// create querier with stores inside controller
 	querier := NewEndpointQueryReplier(controller.NetworkPolicyController)
-
+	// start informers and run controller
+	controller.informerFactory.Start(ctx.Done())
+	controller.crdInformerFactory.Start(ctx.Done())
+	go controller.NetworkPolicyController.Run(ctx.Done())
+	// TODO: replace this with logic which waits for the networkpolicy controller to initialize (look into perf testing)
+	time.Sleep(4 * time.Second)
 	return controller, querier
 }
 
@@ -125,30 +134,18 @@ func TestInvalidSelector(t *testing.T) {
 	_, endpointQuerier := makeControllerAndEndpointQueryReplier()
 	// test appropriate response to QueryNetworkPolices
 	namespace, pod := "non-existing-namespace", "non-existing-pod"
-	response := endpointQuerier.QueryNetworkPolicies(namespace, pod)
+	_, err := endpointQuerier.QueryNetworkPolicies(namespace, pod)
 
-	assert.Equal(t, errors.NewNotFound(v1.Resource("pod"), pod), response.Error, "expected not found error")
+	assert.Equal(t, errors.NewNotFound(v1.Resource("pod"), pod), err, "expected not found error")
 }
 
 // TestSingleAppliedPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects a
 // pod which has a single networkpolicy object applied to it
 func TestSingleAppliedPolicy(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	controller, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0])
-
-	controller.informerFactory.Start(ctx.Done())
-	controller.crdInformerFactory.Start(ctx.Done())
-
-	go controller.NetworkPolicyController.Run(ctx.Done())
-
-	time.Sleep(2 * time.Second)
-
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0])
 	namespace1, pod1 := "testNamespace", "podA"
-	response1 := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
-	require.Equal(t, nil, response1.Error)
-
+	response1, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
+	require.Equal(t, nil, err)
 	assert.Equal(t, response1.Endpoints[0].Policies[0].PolicyRef.Name, "default-deny-ingress")
 }
 
@@ -167,22 +164,10 @@ func TestSingleIngressPolicy(t *testing.T) {
 // TestMultiplePolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
 // a pod which has multiple networkpolicies which define policies on it.
 func TestMultiplePolicy(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	controller, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0], &policies[1])
-
-	controller.informerFactory.Start(ctx.Done())
-	controller.crdInformerFactory.Start(ctx.Done())
-
-	go controller.NetworkPolicyController.Run(ctx.Done())
-
-	time.Sleep(2 * time.Second)
-
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0], &policies[1])
 	namespace1, pod1 := "testNamespace", "podA"
-	response := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
-	require.Equal(t, nil, response.Error)
-
+	response, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
+	require.Equal(t, nil, err)
 	assert.True(t, response.Endpoints[0].Policies[0].Name == "default-deny-egress" ||
 		response.Endpoints[0].Policies[0].Name == "default-deny-ingress")
 	assert.True(t, response.Endpoints[0].Policies[1].Name == "default-deny-egress" ||

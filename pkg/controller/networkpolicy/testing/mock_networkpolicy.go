@@ -49,11 +49,12 @@ func (m *MockEndpointQuerier) EXPECT() *MockEndpointQuerierMockRecorder {
 }
 
 // QueryNetworkPolicies mocks base method
-func (m *MockEndpointQuerier) QueryNetworkPolicies(arg0, arg1 string) *networkpolicy.EndpointQueryResponse {
+func (m *MockEndpointQuerier) QueryNetworkPolicies(arg0, arg1 string) (*networkpolicy.EndpointQueryResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "QueryNetworkPolicies", arg0, arg1)
 	ret0, _ := ret[0].(*networkpolicy.EndpointQueryResponse)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // QueryNetworkPolicies indicates an expected call of QueryNetworkPolicies

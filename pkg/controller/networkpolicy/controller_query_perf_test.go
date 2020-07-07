@@ -108,12 +108,12 @@ func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces 
 	// track execution time by calling query endpoint 10 times on some pod
 	for i := 0; i < 100; i++ {
 		pod, namespace := pods[i].Name, pods[i].Namespace
-		response := querier.QueryNetworkPolicies(namespace, pod)
-		assert.Equal(t, response.Error, nil)
+		response, err := querier.QueryNetworkPolicies(namespace, pod)
+		assert.Equal(t, err, nil)
 		assert.Equal(t, len(response.Endpoints[0].Policies), 1)
 	}
 	// Stop tracking go routines
-	stopCh<-struct{}{}
+	stopCh <- struct{}{}
 	// Minus the idle time to get the actual execution time.
 	executionTime := time.Since(start)
 	if executionTime > maxExecutionTime {
@@ -128,6 +128,3 @@ NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)
 %-12d %-7d %-19d %-10.2f %-12d 
 `, len(namespaces), len(pods), len(networkPolicies), float64(executionTime)/float64(time.Second), maxAlloc/1024/1024)
 }
-
-
-

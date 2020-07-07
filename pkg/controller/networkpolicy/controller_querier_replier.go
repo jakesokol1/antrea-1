@@ -28,7 +28,7 @@ import (
 )
 
 type EndpointQuerier interface {
-	QueryNetworkPolicies(namespace string, podName string) *EndpointQueryResponse
+	QueryNetworkPolicies(namespace string, podName string) (*EndpointQueryResponse, error)
 }
 
 // EndpointQueryReplier is responsible for handling query requests from antctl query
@@ -38,36 +38,35 @@ type EndpointQueryReplier struct {
 
 // EndpointQueryResponse is the reply struct for QueryNetworkPolicies
 type EndpointQueryResponse struct {
-	Endpoints []Endpoint
-	Error error
+	Endpoints []Endpoint `json:"endpoints,omitempty"`
 }
 
 // Endpoint holds response information for an endpoint following a query
 type Endpoint struct {
-	Namespace string
-	Name string
-	Policies []Policy
-	Rules []Rule
+	Namespace string   `json:"namespace,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Policies  []Policy `json:"policies,omitempty"`
+	Rules     []Rule   `json:"rules,omitempty"`
 }
 
 type PolicyRef struct {
-	Namespace string
-	Name string
-	UID types.UID
+	Namespace string    `json:"namespace,omitempty"`
+	Name      string    `json:"name,omitempty"`
+	UID       types.UID `json:"uid,omitempty"`
 }
 
 // Policy holds network policy information to be relayed to client following query endpoint
 type Policy struct {
 	PolicyRef
-	selector metav1.LabelSelector
+	selector metav1.LabelSelector `json:"selector,omitempty"`
 }
 
 // Rule holds
 type Rule struct {
 	PolicyRef
-	Direction networkingv1beta1.Direction
-	RuleIndex int
-	Ports []v1.NetworkPolicyPort
+	Direction networkingv1beta1.Direction `json:"direction,omitempty"`
+	RuleIndex int                         `json:"ruleindex,omitempty"`
+	Ports     []v1.NetworkPolicyPort      `json:"ports,omitempty"`
 }
 
 // NewNetworkPolicyController returns a new *NetworkPolicyController.
@@ -79,15 +78,14 @@ func NewEndpointQueryReplier(networkPolicyController *NetworkPolicyController) *
 }
 
 //Query functions
-func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName string) *EndpointQueryResponse {
+func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName string) (*EndpointQueryResponse, error) {
 	// check if namespace and podName select an existing pod
 	_, err := eq.networkPolicyController.podInformer.Lister().Pods(namespace).Get(podName)
 	// TODO: how to make sure that I handle correct error
 	if err != nil {
 		return &EndpointQueryResponse{
 			Endpoints: nil,
-			Error:     err,
-		}
+		}, err
 	}
 	// grab list of all policies from internalNetworkPolicyStore
 	internalPolicies := eq.networkPolicyController.internalNetworkPolicyStore.List()
@@ -140,5 +138,5 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		Rules:     responseRules,
 	}
 
-	return &EndpointQueryResponse{[]Endpoint{endpoint}, nil}
+	return &EndpointQueryResponse{[]Endpoint{endpoint}}, nil
 }
