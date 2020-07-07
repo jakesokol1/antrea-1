@@ -37,7 +37,7 @@ type ControllerQuerier interface {
 //TODO: implement interface methods
 type controllerQuerier struct {
 	networkPolicyInfoQuerier querier.ControllerNetworkPolicyInfoQuerier
-	endpointQuerier     networkpolicy.EndpointQuerier
+	endpointQuerier          networkpolicy.EndpointQuerier
 	apiPort                  int
 }
 
@@ -94,5 +94,3 @@ func (cq controllerQuerier) GetControllerInfo(controllInfo *v1beta1.AntreaContro
 		controllInfo.APIPort = cq.apiPort
 	}
 }
-
-

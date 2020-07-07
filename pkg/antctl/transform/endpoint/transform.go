@@ -32,9 +32,6 @@ type Response struct {
 
 func objectTransform(o interface{}) (interface{}, error) {
 	endpointQueryResponse := o.(*networkpolicy.EndpointQueryResponse)
-	if endpointQueryResponse.Error != nil {
-		return nil, endpointQueryResponse.Error
-	}
 	responses := make([]Response, 0)
 	for _, policy := range endpointQueryResponse.Endpoints[0].Policies {
 		response := Response{

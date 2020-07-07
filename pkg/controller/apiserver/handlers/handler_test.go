@@ -31,24 +31,29 @@ import (
 
 type TestCase struct {
 	// query arguments sent to handler function
-	handlerRequest  string
-	expectedStatus  int
+	handlerRequest string
+	expectedStatus int
 	// expected result written by handler function
-	expectedContent *networkpolicy.EndpointQueryResponse
+	expectedContent response
 
 	// arguments of call to mock
-	argsMock       []string
+	argsMock []string
 	// results of call to mock
-	mockQueryResponse    *networkpolicy.EndpointQueryResponse
+	mockQueryResponse response
 }
 
-var responses = []*networkpolicy.EndpointQueryResponse{
+type response struct {
+	response *networkpolicy.EndpointQueryResponse
+	error    error
+}
+
+var responses = []response{
 	{
-		Endpoints: nil,
-		Error:     errors.NewNotFound(v1.Resource("pod"), "pod"),
+		response: &networkpolicy.EndpointQueryResponse{Endpoints: nil},
+		error:    errors.NewNotFound(v1.Resource("pod"), "pod"),
 	},
 	{
-		Endpoints: []networkpolicy.Endpoint{
+		response: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
 			{
 				Policies: []networkpolicy.Policy{
 					{
@@ -57,10 +62,11 @@ var responses = []*networkpolicy.EndpointQueryResponse{
 				},
 			},
 		},
-		Error: nil,
+		},
+		error: nil,
 	},
 	{
-		Endpoints: []networkpolicy.Endpoint{
+		response: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
 			{
 				Policies: []networkpolicy.Policy{
 					{
@@ -72,7 +78,8 @@ var responses = []*networkpolicy.EndpointQueryResponse{
 				},
 			},
 		},
-		Error: nil,
+		},
+		error: nil,
 	},
 }
 
@@ -86,19 +93,19 @@ func TestIncompleteArguments(t *testing.T) {
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
 		"Responds with error given no name and no namespace": {
-			handlerRequest:           "",
-			expectedStatus:  http.StatusBadRequest,
-			argsMock: []string{"", ""},
+			handlerRequest: "",
+			expectedStatus: http.StatusBadRequest,
+			argsMock:       []string{"", ""},
 		},
 		"Responds with error given no name": {
-			handlerRequest:           "?namespace=namespace",
-			expectedStatus:  http.StatusBadRequest,
-			argsMock: []string{namespace, ""},
+			handlerRequest: "?namespace=namespace",
+			expectedStatus: http.StatusBadRequest,
+			argsMock:       []string{namespace, ""},
 		},
 		"Responds with error given no namespace": {
-			handlerRequest:           "?pod=pod",
-			expectedStatus:  http.StatusBadRequest,
-			argsMock: []string{"", pod},
+			handlerRequest: "?pod=pod",
+			expectedStatus: http.StatusBadRequest,
+			argsMock:       []string{"", pod},
 		},
 	}
 
@@ -118,12 +125,14 @@ func TestInvalidArguments(t *testing.T) {
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
 		"Responds with error given no invalid selection": {
-			handlerRequest:           "?namespace=namespace&pod=pod",
-			expectedStatus:  http.StatusNotFound,
-			argsMock: []string{namespace, pod},
-			mockQueryResponse: &networkpolicy.EndpointQueryResponse{
-				Endpoints: nil,
-				Error:     errors.NewNotFound(v1.Resource("pod"), "pod"),
+			handlerRequest: "?namespace=namespace&pod=pod",
+			expectedStatus: http.StatusNotFound,
+			argsMock:       []string{namespace, pod},
+			mockQueryResponse: response{
+				response: &networkpolicy.EndpointQueryResponse{
+					Endpoints: nil,
+				},
+				error: errors.NewNotFound(v1.Resource("pod"), "pod"),
 			},
 		},
 	}
@@ -131,7 +140,6 @@ func TestInvalidArguments(t *testing.T) {
 	evaluateTestCases(testCases, mockCtrl, t)
 
 }
-
 
 func TestSinglePolicyResponse(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
@@ -141,19 +149,22 @@ func TestSinglePolicyResponse(t *testing.T) {
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
 		"Responds with list of single element": {
-			handlerRequest:           "?namespace=namespace&pod=pod",
+			handlerRequest:  "?namespace=namespace&pod=pod",
 			expectedStatus:  http.StatusOK,
 			expectedContent: responses[1],
-			argsMock: []string{namespace, pod},
-			mockQueryResponse: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
-				{
-					Policies: []networkpolicy.Policy{
-						{
-							PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
+			argsMock:        []string{namespace, pod},
+			mockQueryResponse: response{
+				response: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
+					{
+						Policies: []networkpolicy.Policy{
+							{
+								PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
+							},
 						},
 					},
 				},
-			},
+				},
+				error: nil,
 			},
 		},
 	}
@@ -170,22 +181,26 @@ func TestMultiPolicyResponse(t *testing.T) {
 	// outline test cases with expected behavior
 	testCases := map[string]TestCase{
 		"Responds with list of single element": {
-			handlerRequest:           "?namespace=namespace&pod=pod",
+			handlerRequest:  "?namespace=namespace&pod=pod",
 			expectedStatus:  http.StatusOK,
 			expectedContent: responses[2],
-			argsMock: []string{namespace, pod},
-			mockQueryResponse: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
-				{
-					Policies: []networkpolicy.Policy{
-						{
-							PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
-						},
-						{
-							PolicyRef: networkpolicy.PolicyRef{Name: "policy2"},
+			argsMock:        []string{namespace, pod},
+			mockQueryResponse: response{
+				response: &networkpolicy.EndpointQueryResponse{Endpoints: []networkpolicy.Endpoint{
+					{
+						Policies: []networkpolicy.Policy{
+							{
+								PolicyRef: networkpolicy.PolicyRef{Name: "policy1"},
+							},
+							{
+								PolicyRef: networkpolicy.PolicyRef{Name: "policy2"},
+							},
 						},
 					},
 				},
-			}},
+				},
+				error: nil,
+			},
 		},
 	}
 
@@ -198,7 +213,7 @@ func evaluateTestCases(testCases map[string]TestCase, mockCtrl *gomock.Controlle
 		// create mock querier with expected behavior outlined in testCase
 		mockQuerier := queriermock.NewMockEndpointQuerier(mockCtrl)
 		if tc.expectedStatus != http.StatusBadRequest {
-			mockQuerier.EXPECT().QueryNetworkPolicies(tc.argsMock[0], tc.argsMock[1]).Return(tc.mockQueryResponse)
+			mockQuerier.EXPECT().QueryNetworkPolicies(tc.argsMock[0], tc.argsMock[1]).Return(tc.mockQueryResponse.response, tc.mockQueryResponse.error)
 		}
 		// initialize handler with mockQuerier
 		handler := endpoint.HandleFunc(mockQuerier)
@@ -215,7 +230,7 @@ func evaluateTestCases(testCases map[string]TestCase, mockCtrl *gomock.Controlle
 		var received networkpolicy.EndpointQueryResponse
 		err = json.Unmarshal(recorder.Body.Bytes(), &received)
 		assert.Nil(t, err)
-		for i, policy := range tc.expectedContent.Endpoints[0].Policies {
+		for i, policy := range tc.expectedContent.response.Endpoints[0].Policies {
 			assert.Equal(t, policy.Name, received.Endpoints[0].Policies[i].Name)
 		}
 	}
