@@ -20,11 +20,9 @@ package networkpolicy
 
 import (
 	networkingv1beta1 "github.com/vmware-tanzu/antrea/pkg/apis/networking/v1beta1"
-	"github.com/vmware-tanzu/antrea/pkg/apiserver/storage"
 	v1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	coreinformers "k8s.io/client-go/informers/core/v1"
 
 	antreatypes "github.com/vmware-tanzu/antrea/pkg/controller/types"
 )
@@ -35,14 +33,7 @@ type EndpointQuerier interface {
 
 // EndpointQueryReplier is responsible for handling query requests from antctl query
 type EndpointQueryReplier struct {
-	// addressGroupStore is the storage where the populated Address Groups are stored.
-	addressGroupStore storage.Interface
-	// appliedToGroupStore is the storage where the populated AppliedTo Groups are stored.
-	appliedToGroupStore storage.Interface
-	// internalNetworkPolicyStore is the storage where the populated internal Network Policy are stored.
-	internalNetworkPolicyStore storage.Interface
-	// podInformer is used to check existence of a selected pod
-	podInformer coreinformers.PodInformer
+	networkPolicyController *NetworkPolicyController
 }
 
 // EndpointQueryResponse is the reply struct for QueryNetworkPolicies
@@ -80,16 +71,9 @@ type Rule struct {
 }
 
 // NewNetworkPolicyController returns a new *NetworkPolicyController.
-func NewEndpointQueryReplier(
-	addressGroupStore storage.Interface,
-	appliedToGroupStore storage.Interface,
-	internalNetworkPolicyStore storage.Interface,
-	podInformer coreinformers.PodInformer) *EndpointQueryReplier {
+func NewEndpointQueryReplier(networkPolicyController *NetworkPolicyController) *EndpointQueryReplier {
 	n := &EndpointQueryReplier{
-		addressGroupStore:          addressGroupStore,
-		appliedToGroupStore:        appliedToGroupStore,
-		internalNetworkPolicyStore: internalNetworkPolicyStore,
-		podInformer: podInformer,
+		networkPolicyController: networkPolicyController,
 	}
 	return n
 }
@@ -97,7 +81,7 @@ func NewEndpointQueryReplier(
 //Query functions
 func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName string) *EndpointQueryResponse {
 	// check if namespace and podName select an existing pod
-	_, err := eq.podInformer.Lister().Pods(namespace).Get(podName)
+	_, err := eq.networkPolicyController.podInformer.Lister().Pods(namespace).Get(podName)
 	// TODO: how to make sure that I handle correct error
 	if err != nil {
 		return &EndpointQueryResponse{
@@ -106,7 +90,7 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		}
 	}
 	// grab list of all policies from internalNetworkPolicyStore
-	internalPolicies := eq.internalNetworkPolicyStore.List()
+	internalPolicies := eq.networkPolicyController.internalNetworkPolicyStore.List()
 	// create network policies categories
 	applied, _, _ := make([]antreatypes.NetworkPolicy, 0), make([]antreatypes.NetworkPolicy, 0),
 		make([]antreatypes.NetworkPolicy, 0)
@@ -116,7 +100,7 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		for _, key := range antreaPolicy.AppliedToGroups {
 			// Check if policy is applied to endpoint
 			//TODO: what is this boolean. what is this error?
-			appliedToGroupInterface, _, _ := eq.appliedToGroupStore.Get(key)
+			appliedToGroupInterface, _, _ := eq.networkPolicyController.appliedToGroupStore.Get(key)
 			appliedToGroup := appliedToGroupInterface.(*antreatypes.AppliedToGroup)
 			// if appliedToGroup selects pod in namespace, append policy to applied category
 			for _, podSet := range appliedToGroup.PodsByNode {

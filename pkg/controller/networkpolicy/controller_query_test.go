@@ -114,8 +114,7 @@ func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkP
 	// create controller
 	_, controller := newController(objects...)
 	// create querier with stores inside controller
-	address, appliedToGroup, policy, podInformer := controller.addressGroupStore, controller.appliedToGroupStore, controller.internalNetworkPolicyStore, controller.podInformer
-	querier := NewEndpointQueryReplier(address, appliedToGroup, policy, podInformer)
+	querier := NewEndpointQueryReplier(controller.NetworkPolicyController)
 
 	return controller, querier
 }
