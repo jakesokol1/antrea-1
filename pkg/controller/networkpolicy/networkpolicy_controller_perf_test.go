@@ -127,10 +127,12 @@ func TestInitXLargeScaleWithSmallNamespaces(t *testing.T) {
 	testComputeNetworkPolicy(t, 10*time.Second, namespaces, networkPolicies, pods)
 }
 
+//TODO: standardize performance testing across tests in controlled environment
 /*
 TestInitXLargeScaleWithOneNamespaces tests the execution time and the memory usage of computing a scale
 of 1 Namespaces, 10k NetworkPolicies, 10k Pods where each network policy selects each pod.
-
+NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)    EXECUTIONS    EVENTS(ag, atg, np)
+1            10000   10000               9.84       1148         30380         20368 5 20368
 The metrics are not accurate under the race detector, and will be skipped when testing with "-race".
 */
 func TestInitXLargeScaleWithOneNamespace(t *testing.T) {
