@@ -29,9 +29,15 @@ import (
 	"time"
 )
 
+//TODO: standardize performance testing across tests in controlled environment
 /*
 TestLargeScaleEndpointQuery tests the execution time and the memory usage of computing a scale
 of 100k Namespaces, 100k NetworkPolicies, 100k Pods, where query returns a single policy.
+
+NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)
+100000       100000  100000              0.01       2264
+
+The metrics are not accurate under the race detector, and will be skipped when testing with "-race".
 */
 func TestLargeScaleEndpointQuerySinglePolicy(t *testing.T) {
 	// getObjects taken directly from networkpolicy_controller_perf_test.go
@@ -75,9 +81,15 @@ func TestLargeScaleEndpointQuerySinglePolicy(t *testing.T) {
 	testQueryEndpoint(t, 30*time.Second, namespaces, networkPolicies, pods, 1, 40)
 }
 
+//TODO: standardize performance testing across tests in controlled environment
 /*
 TestLargeScaleEndpointQueryManyPolicies tests the execution time and the memory usage of computing a scale
 of 10k Namespaces, 10k NetworkPolicies, 10k Pods, where query returns every policy.
+
+NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)
+1            10000   10000               5.72       1087
+
+The metrics are not accurate under the race detector, and will be skipped when testing with "-race".
 */
 func TestLargeScaleEndpointQueryManyPolicies(t *testing.T) {
 	namespace := rand.String(8)
@@ -202,3 +214,28 @@ func genUniqueRuntimeObjects(numObjects int) (namespaces []*v1.Namespace, networ
 	}
 	return namespaces, networkPolicies, pods
 }
+
+/*
+Note, this is performance data relevant to a previous implementation of QueryNetworkPolicy
+
+Without indexing
+
+query
+100k policies and 100k pods with 1 applied policy per pod takes 16 seconds for 100 queries (2341M max heap)
+10k policies and 10k pods with each policy applied to all pods takes 80 seconds for 10 queries (1038M max heap)
+
+init
+100k policies and 100k pods with 1 applied policy per pod takes 12 seconds (1555M max heap)
+10k policies and 10k pods with each policy applied to all pods takes 7 seconds (1138M max heap)
+
+
+With indexing
+
+query
+100k policies and 100k pods with 1 applied policy per pod takes .1 seconds for 1000 queries (2793M max heap)
+10k policies and 10k pods with each policy applied to all pods takes 6 seconds for 1000 queries (1092M max heap)
+
+init
+100k policies and 100k pods with 1 applied policy per pod takes 13 seconds (1849M max heap)
+10k policies and 10k pods with each policy applied to all pods takes 9 seconds (1185M max heap)
+*/
