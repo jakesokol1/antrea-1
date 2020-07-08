@@ -17,9 +17,8 @@
 package networkpolicy
 
 import (
-	"context"
 	"github.com/google/uuid"
-	"github.com/magiconair/properties/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,9 +31,9 @@ import (
 
 /*
 TestLargeScaleEndpointQuery tests the execution time and the memory usage of computing a scale
-of 100k Namespaces, 100k NetworkPolicies, 100k Pods, where each network policy applies to all pods.
+of 100k Namespaces, 100k NetworkPolicies, 100k Pods, where query returns a single policy.
 */
-func TestLargeScaleEndpointQuery(t *testing.T) {
+func TestLargeScaleEndpointQuerySinglePolicy(t *testing.T) {
 	// getObjects taken directly from networkpolicy_controller_perf_test.go
 	getObjects := func() ([]*v1.Namespace, []*networkingv1.NetworkPolicy, []*v1.Pod) {
 		namespace := rand.String(8)
@@ -73,44 +72,77 @@ func TestLargeScaleEndpointQuery(t *testing.T) {
 		return namespaces, networkPolicies, pods
 	}
 	namespaces, networkPolicies, pods := getXObjects(100000, getObjects)
-	testQueryEndpoint(t, 30*time.Second, namespaces, networkPolicies, pods)
+	testQueryEndpoint(t, 30*time.Second, namespaces, networkPolicies, pods, 1, 40)
 }
 
-func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod) {
+/*
+TestLargeScaleEndpointQueryManyPolicies tests the execution time and the memory usage of computing a scale
+of 10k Namespaces, 10k NetworkPolicies, 10k Pods, where query returns every policy.
+*/
+func TestLargeScaleEndpointQueryManyPolicies(t *testing.T) {
+	namespace := rand.String(8)
+	getObjects := func() ([]*v1.Namespace, []*networkingv1.NetworkPolicy, []*v1.Pod) {
+		namespaces := []*v1.Namespace{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: namespace, Labels: map[string]string{"app": namespace}},
+			},
+		}
+		uid := rand.String(8)
+		networkPolicies := []*networkingv1.NetworkPolicy{
+			{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "np-1" + uid, UID: types.UID(uuid.New().String())},
+				Spec: networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app-1": "scale-1"}},
+					PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{
+						{
+							From: []networkingv1.NetworkPolicyPeer{
+								{
+									PodSelector: &metav1.LabelSelector{
+										MatchLabels: map[string]string{"app-1": "scale-1"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		pods := []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "pod1" + uid, UID: types.UID(uuid.New().String()), Labels: map[string]string{"app-1": "scale-1"}},
+				Spec:       v1.PodSpec{NodeName: getRandomNodeName()},
+				Status:     v1.PodStatus{PodIP: getRandomIP()},
+			},
+		}
+		return namespaces, networkPolicies, pods
+	}
+	namespaces, networkPolicies, pods := getXObjects(10000, getObjects)
+	testQueryEndpoint(t, 30*time.Second, namespaces[0:1], networkPolicies, pods, 10000, 40)
+}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
-	objs := toRunTimeObjects(namespaces, networkPolicies, pods)
-	c, querier := makeControllerAndEndpointQueryReplier(objs...)
-
-	c.informerFactory.Start(ctx.Done())
-	c.crdInformerFactory.Start(ctx.Done())
-
-	go c.NetworkPolicyController.Run(ctx.Done())
-
-	time.Sleep(15 * time.Second)
-
-	stopCh := make(chan struct{})
-
-	var wg sync.WaitGroup
-
+func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod, responseLength int, wait int) {
 	// Stat the maximum heap allocation.
+	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
 	var maxAlloc uint64
 	wg.Add(1)
 	go func() {
 		statMaxMemAlloc(&maxAlloc, 500*time.Millisecond, stopCh)
 		wg.Done()
 	}()
-
+	// create controller
+	objs := toRunTimeObjects(namespaces, networkPolicies, pods)
+	_, querier := makeControllerAndEndpointQueryReplier(wait, objs...)
 	// Everything is ready, now start timing.
 	start := time.Now()
-	// track execution time by calling query endpoint 10 times on some pod
-	for i := 0; i < 100; i++ {
+	// track execution time by calling query endpoint 1000 times on random pods
+	for i := 0; i < 1000; i++ {
 		pod, namespace := pods[i].Name, pods[i].Namespace
 		response, err := querier.QueryNetworkPolicies(namespace, pod)
-		assert.Equal(t, err, nil)
-		assert.Equal(t, len(response.Endpoints[0].Policies), 1)
+		require.Equal(t, err, nil)
+		require.Equal(t, len(response.Endpoints[0].Policies), responseLength)
 	}
 	// Stop tracking go routines
 	stopCh <- struct{}{}
@@ -127,4 +159,46 @@ func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces 
 NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)    
 %-12d %-7d %-19d %-10.2f %-12d 
 `, len(namespaces), len(pods), len(networkPolicies), float64(executionTime)/float64(time.Second), maxAlloc/1024/1024)
+}
+
+func genUniqueRuntimeObjects(numObjects int) (namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod) {
+	namespaceID := rand.String(8)
+	namespaces, networkPolicies, pods = make([]*v1.Namespace, 0), make([]*networkingv1.NetworkPolicy, 0), make([]*v1.Pod, 0)
+	for i := 0; i < numObjects; i++ {
+		namespace := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: namespaceID, Labels: map[string]string{"app": namespaceID}},
+		}
+		networkPolicy := &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespaceID, Name: "np-" + string(i), UID: types.UID(uuid.New().String())},
+			Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app-1": "scale-1"}},
+				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
+				Ingress: []networkingv1.NetworkPolicyIngressRule{
+					{
+						From: []networkingv1.NetworkPolicyPeer{
+							{
+								PodSelector: &metav1.LabelSelector{
+									MatchLabels: map[string]string{"app-1": "scale-1"},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		pod := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespaceID,
+				Name: "pod" + string(i),
+				UID: types.UID(uuid.New().String()),
+				Labels: map[string]string{"app-1": "scale-1"},
+			},
+			Spec:       v1.PodSpec{NodeName: getRandomNodeName()},
+			Status:     v1.PodStatus{PodIP: getRandomIP()},
+		}
+		namespaces = append(namespaces, namespace)
+		networkPolicies = append(networkPolicies, networkPolicy)
+		pods = append(pods, pod)
+	}
+	return namespaces, networkPolicies, pods
 }
