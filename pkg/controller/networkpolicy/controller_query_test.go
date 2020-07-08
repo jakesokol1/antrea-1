@@ -112,7 +112,7 @@ var namespaces = []v1.Namespace{
 	},
 }
 
-func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkPolicyController, *EndpointQueryReplier) {
+func makeControllerAndEndpointQueryReplier(wait int, objects ...runtime.Object) (*networkPolicyController, *EndpointQueryReplier) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// create controller
@@ -124,14 +124,14 @@ func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkP
 	controller.crdInformerFactory.Start(ctx.Done())
 	go controller.NetworkPolicyController.Run(ctx.Done())
 	// TODO: replace this with logic which waits for the networkpolicy controller to initialize (look into perf testing)
-	time.Sleep(4 * time.Second)
+	time.Sleep(time.Duration(wait) * time.Second)
 	return controller, querier
 }
 
 // TestInvalidSelector tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) does not
 // select any pods
 func TestInvalidSelector(t *testing.T) {
-	_, endpointQuerier := makeControllerAndEndpointQueryReplier()
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(4)
 	// test appropriate response to QueryNetworkPolices
 	namespace, pod := "non-existing-namespace", "non-existing-pod"
 	_, err := endpointQuerier.QueryNetworkPolicies(namespace, pod)
@@ -142,7 +142,7 @@ func TestInvalidSelector(t *testing.T) {
 // TestSingleAppliedPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects a
 // pod which has a single networkpolicy object applied to it
 func TestSingleAppliedPolicy(t *testing.T) {
-	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0])
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(4, &namespaces[0], &pods[0], &policies[0])
 	namespace1, pod1 := "testNamespace", "podA"
 	response1, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
 	require.Equal(t, nil, err)
@@ -164,7 +164,7 @@ func TestSingleIngressPolicy(t *testing.T) {
 // TestMultiplePolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
 // a pod which has multiple networkpolicies which define policies on it.
 func TestMultiplePolicy(t *testing.T) {
-	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0], &policies[1])
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(4, &namespaces[0], &pods[0], &policies[0], &policies[1])
 	namespace1, pod1 := "testNamespace", "podA"
 	response, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
 	require.Equal(t, nil, err)
