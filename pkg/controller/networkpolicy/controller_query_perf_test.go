@@ -78,7 +78,7 @@ func TestLargeScaleEndpointQuerySinglePolicy(t *testing.T) {
 		return namespaces, networkPolicies, pods
 	}
 	namespaces, networkPolicies, pods := getXObjects(100000, getObjects)
-	testQueryEndpoint(t, 30*time.Second, namespaces, networkPolicies, pods, 1, 40)
+	testQueryEndpoint(t, time.Second, namespaces, networkPolicies, pods, 1)
 }
 
 //TODO: standardize performance testing across tests in controlled environment
@@ -130,11 +130,11 @@ func TestLargeScaleEndpointQueryManyPolicies(t *testing.T) {
 		return namespaces, networkPolicies, pods
 	}
 	namespaces, networkPolicies, pods := getXObjects(10000, getObjects)
-	testQueryEndpoint(t, 30*time.Second, namespaces[0:1], networkPolicies, pods, 10000, 40)
+	testQueryEndpoint(t, 10*time.Second, namespaces[0:1], networkPolicies, pods, 10000)
 }
 
 
-func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod, responseLength int, wait int) {
+func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod, responseLength int) {
 	// Stat the maximum heap allocation.
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
@@ -146,7 +146,7 @@ func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces 
 	}()
 	// create controller
 	objs := toRunTimeObjects(namespaces, networkPolicies, pods)
-	_, querier := makeControllerAndEndpointQueryReplier(wait, objs...)
+	_, querier := makeControllerAndEndpointQueryReplier(objs...)
 	// Everything is ready, now start timing.
 	start := time.Now()
 	// track execution time by calling query endpoint 1000 times on random pods

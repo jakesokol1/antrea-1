@@ -15,7 +15,6 @@
 package networkpolicy
 
 import (
-	"context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -112,26 +111,40 @@ var namespaces = []v1.Namespace{
 	},
 }
 
-func makeControllerAndEndpointQueryReplier(wait int, objects ...runtime.Object) (*networkPolicyController, *EndpointQueryReplier) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkPolicyController, *EndpointQueryReplier) {
 	// create controller
-	_, controller := newController(objects...)
+	_, c := newController(objects...)
+	c.heartbeatCh = make(chan heartbeat, 1000)
+	stopCh := make(chan struct{})
 	// create querier with stores inside controller
-	querier := NewEndpointQueryReplier(controller.NetworkPolicyController)
+	querier := NewEndpointQueryReplier(c.NetworkPolicyController)
 	// start informers and run controller
-	controller.informerFactory.Start(ctx.Done())
-	controller.crdInformerFactory.Start(ctx.Done())
-	go controller.NetworkPolicyController.Run(ctx.Done())
-	// TODO: replace this with logic which waits for the networkpolicy controller to initialize (look into perf testing)
-	time.Sleep(time.Duration(wait) * time.Second)
-	return controller, querier
+	c.informerFactory.Start(stopCh)
+	go c.Run(stopCh)
+	// wait until computation is done
+	idleTimeout := 3 * time.Second
+	timer := time.NewTimer(idleTimeout)
+	func() {
+		for {
+			timer.Reset(idleTimeout)
+			select {
+			case <-c.heartbeatCh:
+				continue
+			case <-timer.C:
+				close(stopCh)
+				return
+			}
+		}
+	}()
+	// block until computation complete
+	<-stopCh
+	return c, querier
 }
 
 // TestInvalidSelector tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) does not
 // select any pods
 func TestInvalidSelector(t *testing.T) {
-	_, endpointQuerier := makeControllerAndEndpointQueryReplier(4)
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier()
 	// test appropriate response to QueryNetworkPolices
 	namespace, pod := "non-existing-namespace", "non-existing-pod"
 	_, err := endpointQuerier.QueryNetworkPolicies(namespace, pod)
@@ -142,7 +155,7 @@ func TestInvalidSelector(t *testing.T) {
 // TestSingleAppliedPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects a
 // pod which has a single networkpolicy object applied to it
 func TestSingleAppliedPolicy(t *testing.T) {
-	_, endpointQuerier := makeControllerAndEndpointQueryReplier(4, &namespaces[0], &pods[0], &policies[0])
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0])
 	namespace1, pod1 := "testNamespace", "podA"
 	response1, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
 	require.Equal(t, nil, err)
@@ -164,7 +177,7 @@ func TestSingleIngressPolicy(t *testing.T) {
 // TestMultiplePolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
 // a pod which has multiple networkpolicies which define policies on it.
 func TestMultiplePolicy(t *testing.T) {
-	_, endpointQuerier := makeControllerAndEndpointQueryReplier(4, &namespaces[0], &pods[0], &policies[0], &policies[1])
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0], &policies[1])
 	namespace1, pod1 := "testNamespace", "podA"
 	response, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
 	require.Equal(t, nil, err)
