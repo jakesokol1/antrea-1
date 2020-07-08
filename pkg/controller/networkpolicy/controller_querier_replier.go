@@ -20,6 +20,7 @@ package networkpolicy
 
 import (
 	networkingv1beta1 "github.com/vmware-tanzu/antrea/pkg/apis/networking/v1beta1"
+	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy/store"
 	v1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -81,40 +82,35 @@ func NewEndpointQueryReplier(networkPolicyController *NetworkPolicyController) *
 func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName string) (*EndpointQueryResponse, error) {
 	// check if namespace and podName select an existing pod
 	_, err := eq.networkPolicyController.podInformer.Lister().Pods(namespace).Get(podName)
-	// TODO: how to make sure that I handle correct error
 	if err != nil {
 		return &EndpointQueryResponse{
 			Endpoints: nil,
 		}, err
 	}
-	// grab list of all policies from internalNetworkPolicyStore
-	internalPolicies := eq.networkPolicyController.internalNetworkPolicyStore.List()
 	// create network policies categories
-	applied, _, _ := make([]antreatypes.NetworkPolicy, 0), make([]antreatypes.NetworkPolicy, 0),
+	applied, _, _ := make([]*antreatypes.NetworkPolicy, 0), make([]antreatypes.NetworkPolicy, 0),
 		make([]antreatypes.NetworkPolicy, 0)
 	// filter all policies into appropriate groups
-	for _, policy := range internalPolicies {
-		antreaPolicy := policy.(*antreatypes.NetworkPolicy)
-		for _, key := range antreaPolicy.AppliedToGroups {
-			// Check if policy is applied to endpoint
-			//TODO: what is this boolean. what is this error?
-			appliedToGroupInterface, _, _ := eq.networkPolicyController.appliedToGroupStore.Get(key)
-			appliedToGroup := appliedToGroupInterface.(*antreatypes.AppliedToGroup)
-			// if appliedToGroup selects pod in namespace, append policy to applied category
-			for _, podSet := range appliedToGroup.PodsByNode {
-				for _, member := range podSet {
-					trialPodName, trialNamespace := member.Pod.Name, member.Pod.Namespace
-					if podName == trialPodName && namespace == trialNamespace {
-						applied = append(applied, *policy.(*antreatypes.NetworkPolicy))
-					}
-				}
-			}
-			// Check if policy defines an egress or ingress rule on endpoint
-			for _, rule := range policy.(*antreatypes.NetworkPolicy).Rules {
-				//TODO: figure out how to see if namespace, pod correlates with NetworkPolicyPeer
-				_, _ = rule.From, rule.To
-			}
+	appliedToGroups, err := eq.networkPolicyController.appliedToGroupStore.GetByIndex(store.PodIndex, podName + "/" + namespace)
+	if err != nil {
+		return &EndpointQueryResponse{
+			Endpoints: nil,
+		}, err
+	}
+	// iterate through appliedToGroups to list applied policies using appliedToGroups indexer
+	for _, appliedToGroup := range appliedToGroups {
+		policies, err := eq.networkPolicyController.internalNetworkPolicyStore.GetByIndex(store.AppliedToGroupIndex,
+			string(appliedToGroup.(*antreatypes.AppliedToGroup).UID))
+		if err != nil {
+			return &EndpointQueryResponse{
+				Endpoints: nil,
+			}, err
 		}
+		for _, policy := range policies {
+			applied = append(applied, policy.(*antreatypes.NetworkPolicy))
+		}
+
+
 	}
 	// make response policies
 	responsePolicies := make([]Policy, 0)
