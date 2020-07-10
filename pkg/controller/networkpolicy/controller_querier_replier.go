@@ -88,16 +88,15 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		}, err
 	}
 	// create network policies categories
-	applied, _, _ := make([]*antreatypes.NetworkPolicy, 0), make([]antreatypes.NetworkPolicy, 0),
-		make([]antreatypes.NetworkPolicy, 0)
-	// filter all policies into appropriate groups
+	applied, ingress, egress := make([]*antreatypes.NetworkPolicy, 0), make([]*antreatypes.NetworkPolicy, 0),
+		make([]*antreatypes.NetworkPolicy, 0)
+	// get all appliedToGroups using pod index, then get applied policies using appliedToGroup
 	appliedToGroups, err := eq.networkPolicyController.appliedToGroupStore.GetByIndex(store.PodIndex, podName + "/" + namespace)
 	if err != nil {
 		return &EndpointQueryResponse{
 			Endpoints: nil,
 		}, err
 	}
-	// iterate through appliedToGroups to list applied policies using appliedToGroups indexer
 	for _, appliedToGroup := range appliedToGroups {
 		policies, err := eq.networkPolicyController.internalNetworkPolicyStore.GetByIndex(store.AppliedToGroupIndex,
 			string(appliedToGroup.(*antreatypes.AppliedToGroup).UID))
@@ -109,8 +108,36 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		for _, policy := range policies {
 			applied = append(applied, policy.(*antreatypes.NetworkPolicy))
 		}
-
-
+	}
+	// get all addressGroups using pod index, then get ingress and egress policies using addressGroup
+	addressGroups, err := eq.networkPolicyController.addressGroupStore.GetByIndex(store.PodIndex, podName + "/" + namespace)
+	if err != nil {
+		return &EndpointQueryResponse{
+			Endpoints: nil,
+		}, err
+	}
+	for _, addressGroup := range addressGroups {
+		policies, err := eq.networkPolicyController.internalNetworkPolicyStore.GetByIndex(store.AddressGroupIndex,
+			string(addressGroup.(*antreatypes.AddressGroup).UID))
+		if err != nil {
+			return &EndpointQueryResponse{
+				Endpoints: nil,
+			}, err
+		}
+		for _, policy := range policies {
+			for _, rule := range policy.(*antreatypes.NetworkPolicy).Rules {
+				for _, addressGroupTrial := range rule.To.AddressGroups {
+					if addressGroupTrial == string(addressGroup.(*antreatypes.AddressGroup).UID) {
+						egress = append(egress, policy.(*antreatypes.NetworkPolicy))
+					}
+				}
+				for _, addressGroupTrial := range rule.From.AddressGroups {
+					if addressGroupTrial == string(addressGroup.(*antreatypes.AddressGroup).UID) {
+						ingress = append(ingress, policy.(*antreatypes.NetworkPolicy))
+					}
+				}
+			}
+		}
 	}
 	// make response policies
 	responsePolicies := make([]Policy, 0)
@@ -126,6 +153,35 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	}
 	// make rules
 	responseRules := make([]Rule, 0)
+	// create rules based on egress and ingress policies
+	for _, internalPolicy := range egress {
+		newRule := Rule{
+			PolicyRef: PolicyRef{
+				Namespace: internalPolicy.Namespace,
+				Name:      internalPolicy.Name,
+				UID:       internalPolicy.UID,
+			},
+			Direction: networkingv1beta1.DirectionOut,
+			//TODO: I am not sure what these are
+			RuleIndex: -1,
+			Ports:     nil,
+		}
+		responseRules = append(responseRules, newRule)
+	}
+	for _, internalPolicy := range ingress {
+		newRule := Rule{
+			PolicyRef: PolicyRef{
+				Namespace: internalPolicy.Namespace,
+				Name:      internalPolicy.Name,
+				UID:       internalPolicy.UID,
+			},
+			Direction: networkingv1beta1.DirectionIn,
+			//TODO: I am not sure what these are
+			RuleIndex: -1,
+			Ports:     nil,
+		}
+		responseRules = append(responseRules, newRule)
+	}
 	// endpoint
 	endpoint := Endpoint{
 		Namespace: namespace,

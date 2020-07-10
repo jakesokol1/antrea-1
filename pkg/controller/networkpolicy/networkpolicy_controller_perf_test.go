@@ -130,9 +130,11 @@ func TestInitXLargeScaleWithSmallNamespaces(t *testing.T) {
 //TODO: standardize performance testing across tests in controlled environment
 /*
 TestInitXLargeScaleWithOneNamespaces tests the execution time and the memory usage of computing a scale
-of 1 Namespaces, 10k NetworkPolicies, 10k Pods where each network policy selects each pod.
+of 1 Namespaces, 10k NetworkPolicies, 10k Pods where each network policy selects each pod (applied + ingress).
+
 NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)    EXECUTIONS    EVENTS(ag, atg, np)
-1            10000   10000               9.84       1148         30380         20368 5 20368
+1            10000   10000               10.66       1157         30380         20368 5 20368
+
 The metrics are not accurate under the race detector, and will be skipped when testing with "-race".
 */
 func TestInitXLargeScaleWithOneNamespace(t *testing.T) {
@@ -174,7 +176,7 @@ func TestInitXLargeScaleWithOneNamespace(t *testing.T) {
 		return namespaces, networkPolicies, pods
 	}
 	namespaces, networkPolicies, pods := getXObjects(10000, getObjects)
-	testComputeNetworkPolicy(t, 10*time.Second, namespaces[0:1], networkPolicies, pods)
+	testComputeNetworkPolicy(t, 15*time.Second, namespaces[0:1], networkPolicies, pods)
 }
 
 func testComputeNetworkPolicy(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod) {
