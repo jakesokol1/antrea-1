@@ -17,6 +17,7 @@ package networkpolicy
 import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware-tanzu/antrea/pkg/apis/networking/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +33,7 @@ var pods = []v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "podA",
 			Namespace: "testNamespace",
+			Labels: map[string]string{"foo": "bar"},
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{{
@@ -53,6 +55,7 @@ var pods = []v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "podB",
 			Namespace: "testNamespace",
+			Labels: map[string]string{"foo": "bar"},
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{{
@@ -80,12 +83,39 @@ var pods = []v1.Pod{
 var policies = []networkingv1.NetworkPolicy{
 	{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "default-deny-ingress",
+			Name: "test-ingress-egress",
+			Namespace: "testNamespace",
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{},
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"foo": "bar"},
+			},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"foo": "bar"},
+								MatchExpressions: nil,
+							},
+						},
+					},
+				},
+			},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels:      map[string]string{"foo": "bar"},
+								MatchExpressions: nil,
+							},
+						},
+					},
+				},
+			},
 			PolicyTypes: []networkingv1.PolicyType{
-				networkingv1.PolicyTypeIngress,
+				networkingv1.PolicyTypeEgress,
 			},
 		},
 	},
@@ -94,7 +124,9 @@ var policies = []networkingv1.NetworkPolicy{
 			Name: "default-deny-egress",
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{},
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"foo": "bar"},
+			},
 			PolicyTypes: []networkingv1.PolicyType{
 				networkingv1.PolicyTypeEgress,
 			},
@@ -154,12 +186,20 @@ func TestInvalidSelector(t *testing.T) {
 
 // TestSingleAppliedPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects a
 // pod which has a single networkpolicy object applied to it
-func TestSingleAppliedPolicy(t *testing.T) {
+func TestSingleAppliedIngressEgressPolicy(t *testing.T) {
 	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0])
 	namespace1, pod1 := "testNamespace", "podA"
 	response1, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
 	require.Equal(t, nil, err)
-	assert.Equal(t, response1.Endpoints[0].Policies[0].PolicyRef.Name, "default-deny-ingress")
+	// test applied policy response
+	assert.Equal(t, "test-ingress-egress", response1.Endpoints[0].Policies[0].PolicyRef.Name)
+	// test egress policy response
+	assert.Equal(t, v1beta1.DirectionOut, response1.Endpoints[0].Rules[0].Direction)
+	assert.Equal(t, "test-ingress-egress", response1.Endpoints[0].Rules[0].PolicyRef.Name)
+	// test ingress policy response
+	assert.Equal(t, v1beta1.DirectionIn, response1.Endpoints[0].Rules[1].Direction)
+	assert.Equal(t, "test-ingress-egress", response1.Endpoints[0].Rules[1].Name)
+
 }
 
 // TestSingleEgressPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
@@ -181,8 +221,8 @@ func TestMultiplePolicy(t *testing.T) {
 	namespace1, pod1 := "testNamespace", "podA"
 	response, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
 	require.Equal(t, nil, err)
-	assert.True(t, response.Endpoints[0].Policies[0].Name == "default-deny-egress" ||
-		response.Endpoints[0].Policies[0].Name == "default-deny-ingress")
+	assert.True(t, response.Endpoints[0].Policies[0].Name == "test-egress" ||
+		response.Endpoints[0].Policies[0].Name == "test-ingress-egress")
 	assert.True(t, response.Endpoints[0].Policies[1].Name == "default-deny-egress" ||
-		response.Endpoints[0].Policies[1].Name == "default-deny-ingress")
+		response.Endpoints[0].Policies[1].Name == "test-ingress-egress")
 }
