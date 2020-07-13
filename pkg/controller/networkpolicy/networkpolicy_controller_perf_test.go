@@ -127,7 +127,6 @@ func TestInitXLargeScaleWithSmallNamespaces(t *testing.T) {
 	testComputeNetworkPolicy(t, 10*time.Second, namespaces, networkPolicies, pods)
 }
 
-//TODO: standardize performance testing across tests in controlled environment
 /*
 TestInitXLargeScaleWithOneNamespaces tests the execution time and the memory usage of computing a scale
 of 1 Namespaces, 10k NetworkPolicies, 10k Pods where each network policy selects each pod (applied + ingress).

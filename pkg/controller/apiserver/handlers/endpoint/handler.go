@@ -33,12 +33,15 @@ func HandleFunc(eq networkpolicy.EndpointQuerier) http.HandlerFunc {
 		}
 		// query endpoint and handle response errors
 		endpointQueryResponse, err := eq.QueryNetworkPolicies(namespace, podName)
-		if err != nil {
-			//TODO: need to address errors here which are not resource not found errors
+		if err == nil && endpointQueryResponse.Endpoints == nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		if err := json.NewEncoder(w).Encode(endpointQueryResponse); err != nil {
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(endpointQueryResponse.Endpoints); err != nil {
 			http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
 		}
 	}

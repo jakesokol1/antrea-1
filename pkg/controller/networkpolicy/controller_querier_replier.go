@@ -85,25 +85,25 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	if err != nil {
 		return &EndpointQueryResponse{
 			Endpoints: nil,
-		}, err
+		}, nil
+	}
+	type ruleTemp struct {
+		policy *antreatypes.NetworkPolicy
+		index int
 	}
 	// create network policies categories
-	applied, ingress, egress := make([]*antreatypes.NetworkPolicy, 0), make([]*antreatypes.NetworkPolicy, 0),
-		make([]*antreatypes.NetworkPolicy, 0)
+	applied, ingress, egress := make([]*antreatypes.NetworkPolicy, 0), make([]*ruleTemp, 0),
+		make([]*ruleTemp, 0)
 	// get all appliedToGroups using pod index, then get applied policies using appliedToGroup
 	appliedToGroups, err := eq.networkPolicyController.appliedToGroupStore.GetByIndex(store.PodIndex, podName + "/" + namespace)
 	if err != nil {
-		return &EndpointQueryResponse{
-			Endpoints: nil,
-		}, err
+		return nil, err
 	}
 	for _, appliedToGroup := range appliedToGroups {
 		policies, err := eq.networkPolicyController.internalNetworkPolicyStore.GetByIndex(store.AppliedToGroupIndex,
 			string(appliedToGroup.(*antreatypes.AppliedToGroup).UID))
 		if err != nil {
-			return &EndpointQueryResponse{
-				Endpoints: nil,
-			}, err
+			return nil, err
 		}
 		for _, policy := range policies {
 			applied = append(applied, policy.(*antreatypes.NetworkPolicy))
@@ -112,28 +112,24 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	// get all addressGroups using pod index, then get ingress and egress policies using addressGroup
 	addressGroups, err := eq.networkPolicyController.addressGroupStore.GetByIndex(store.PodIndex, podName + "/" + namespace)
 	if err != nil {
-		return &EndpointQueryResponse{
-			Endpoints: nil,
-		}, err
+		return nil, err
 	}
 	for _, addressGroup := range addressGroups {
 		policies, err := eq.networkPolicyController.internalNetworkPolicyStore.GetByIndex(store.AddressGroupIndex,
 			string(addressGroup.(*antreatypes.AddressGroup).UID))
 		if err != nil {
-			return &EndpointQueryResponse{
-				Endpoints: nil,
-			}, err
+			return nil, err
 		}
 		for _, policy := range policies {
-			for _, rule := range policy.(*antreatypes.NetworkPolicy).Rules {
+			for i, rule := range policy.(*antreatypes.NetworkPolicy).Rules {
 				for _, addressGroupTrial := range rule.To.AddressGroups {
 					if addressGroupTrial == string(addressGroup.(*antreatypes.AddressGroup).UID) {
-						egress = append(egress, policy.(*antreatypes.NetworkPolicy))
+						egress = append(egress, &ruleTemp{policy: policy.(*antreatypes.NetworkPolicy), index: i})
 					}
 				}
 				for _, addressGroupTrial := range rule.From.AddressGroups {
 					if addressGroupTrial == string(addressGroup.(*antreatypes.AddressGroup).UID) {
-						ingress = append(ingress, policy.(*antreatypes.NetworkPolicy))
+						ingress = append(ingress, &ruleTemp{policy: policy.(*antreatypes.NetworkPolicy), index: i})
 					}
 				}
 			}
@@ -157,13 +153,13 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	for _, internalPolicy := range egress {
 		newRule := Rule{
 			PolicyRef: PolicyRef{
-				Namespace: internalPolicy.Namespace,
-				Name:      internalPolicy.Name,
-				UID:       internalPolicy.UID,
+				Namespace: internalPolicy.policy.Namespace,
+				Name:      internalPolicy.policy.Name,
+				UID:       internalPolicy.policy.UID,
 			},
 			Direction: networkingv1beta1.DirectionOut,
-			//TODO: I am not sure what these are
-			RuleIndex: -1,
+			RuleIndex: internalPolicy.index,
+			//TODO: I am not sure what this is
 			Ports:     nil,
 		}
 		responseRules = append(responseRules, newRule)
@@ -171,13 +167,13 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	for _, internalPolicy := range ingress {
 		newRule := Rule{
 			PolicyRef: PolicyRef{
-				Namespace: internalPolicy.Namespace,
-				Name:      internalPolicy.Name,
-				UID:       internalPolicy.UID,
+				Namespace: internalPolicy.policy.Namespace,
+				Name:      internalPolicy.policy.Name,
+				UID:       internalPolicy.policy.UID,
 			},
 			Direction: networkingv1beta1.DirectionIn,
-			//TODO: I am not sure what these are
-			RuleIndex: -1,
+			RuleIndex: internalPolicy.index,
+			//TODO: I am not sure what this is
 			Ports:     nil,
 		}
 		responseRules = append(responseRules, newRule)

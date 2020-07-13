@@ -154,7 +154,7 @@ func makeControllerAndEndpointQueryReplier(objects ...runtime.Object) (*networkP
 	c.informerFactory.Start(stopCh)
 	go c.Run(stopCh)
 	// wait until computation is done
-	idleTimeout := 3 * time.Second
+	idleTimeout := 500 * time.Millisecond
 	timer := time.NewTimer(idleTimeout)
 	func() {
 		for {
@@ -184,8 +184,20 @@ func TestInvalidSelector(t *testing.T) {
 	assert.Equal(t, errors.NewNotFound(v1.Resource("pod"), pod), err, "expected not found error")
 }
 
+// TestNoPolicy tests the result of QueryNetworkPolicy when no policies are relevant to the endpoint
+func TestNoPolicy(t *testing.T) {
+	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0])
+	namespace1, pod1 := "testNamespace", "podA"
+	response1, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
+	require.Equal(t, nil, err)
+	// test applied policy response
+	assert.Equal(t, 0, len(response1.Endpoints[0].Policies))
+	// test egress + ingress policy response
+	assert.Equal(t, 0, len(response1.Endpoints[0].Rules))
+}
+
 // TestSingleAppliedPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects a
-// pod which has a single networkpolicy object applied to it
+// pod which has a single network policy object applied to it
 func TestSingleAppliedIngressEgressPolicy(t *testing.T) {
 	_, endpointQuerier := makeControllerAndEndpointQueryReplier(&namespaces[0], &pods[0], &policies[0])
 	namespace1, pod1 := "testNamespace", "podA"
@@ -199,7 +211,6 @@ func TestSingleAppliedIngressEgressPolicy(t *testing.T) {
 	// test ingress policy response
 	assert.Equal(t, v1beta1.DirectionIn, response1.Endpoints[0].Rules[1].Direction)
 	assert.Equal(t, "test-ingress-egress", response1.Endpoints[0].Rules[1].Name)
-
 }
 
 // TestSingleEgressPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects

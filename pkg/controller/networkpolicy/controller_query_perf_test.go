@@ -29,7 +29,6 @@ import (
 	"time"
 )
 
-//TODO: standardize performance testing across tests in controlled environment
 /*
 TestLargeScaleEndpointQuery tests the execution time and the memory usage of computing a scale
 of 100k Namespaces, 100k NetworkPolicies, 100k Pods, where query returns a single policy.
@@ -81,7 +80,6 @@ func TestLargeScaleEndpointQuerySinglePolicy(t *testing.T) {
 	testQueryEndpoint(t, time.Second, namespaces, networkPolicies, pods, 1)
 }
 
-//TODO: standardize performance testing across tests in controlled environment
 /*
 TestLargeScaleEndpointQueryManyPolicies tests the execution time and the memory usage of computing a scale
 of 10k Namespaces, 10k NetworkPolicies, 10k Pods, where query returns every policy (applied + ingress).
