@@ -167,10 +167,9 @@ func NewAddressGroupStore() storage.Interface {
 			if !ok {
 				return []string{}, nil
 			}
-			keys := make([]string, 0)
+			keys := make([]string, 0, len(ag.Pods))
 			for _, pod := range ag.Pods {
 				name, namespace := pod.Pod.Name, pod.Pod.Namespace
-				// TODO: this feels a bit hacky, could be replaced with or more formal uid key function
 				keys = append(keys, name + "/" + namespace)
 			}
 			return keys, nil
