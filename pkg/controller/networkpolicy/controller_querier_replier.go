@@ -21,7 +21,6 @@ package networkpolicy
 import (
 	networkingv1beta1 "github.com/vmware-tanzu/antrea/pkg/apis/networking/v1beta1"
 	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy/store"
-	v1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -67,7 +66,6 @@ type Rule struct {
 	PolicyRef
 	Direction networkingv1beta1.Direction `json:"direction,omitempty"`
 	RuleIndex int                         `json:"ruleindex,omitempty"`
-	Ports     []v1.NetworkPolicyPort      `json:"ports,omitempty"`
 }
 
 // NewNetworkPolicyController returns a new *NetworkPolicyController.
@@ -159,8 +157,6 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 			},
 			Direction: networkingv1beta1.DirectionOut,
 			RuleIndex: internalPolicy.index,
-			//TODO: I am not sure what this is
-			Ports:     nil,
 		}
 		responseRules = append(responseRules, newRule)
 	}
@@ -173,8 +169,6 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 			},
 			Direction: networkingv1beta1.DirectionIn,
 			RuleIndex: internalPolicy.index,
-			//TODO: I am not sure what this is
-			Ports:     nil,
 		}
 		responseRules = append(responseRules, newRule)
 	}
