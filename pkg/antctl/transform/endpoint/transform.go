@@ -16,7 +16,7 @@ package endpoint
 
 import (
 	"github.com/vmware-tanzu/antrea/pkg/antctl/transform"
-	"github.com/vmware-tanzu/antrea/pkg/antctl/transform/common"
+	"github.com/vmware-tanzu/antrea/pkg/apis/networking/v1beta1"
 	"github.com/vmware-tanzu/antrea/pkg/controller/networkpolicy"
 	"io"
 	"reflect"
@@ -27,17 +27,42 @@ type Policy struct {
 }
 
 type Response struct {
-	Applied Policy
+	Namespace string
+	Name string
+	Policies [][]string
+	EgressRules [][]string
+	IngressRules [][]string
 }
 
 func objectTransform(o interface{}) (interface{}, error) {
 	endpointQueryResponse := o.(*networkpolicy.EndpointQueryResponse)
-	responses := make([]Response, 0)
-	for _, policy := range endpointQueryResponse.Endpoints[0].Policies {
-		response := Response{
-			Applied: Policy{
-				Name: policy.Name,
-			},
+	responses := make([]*Response, 0)
+	// iterate through each endpoint and construct response
+	for _, endpoint := range endpointQueryResponse.Endpoints {
+		// transform applied policies to string representation
+		policies := make([][]string, 0)
+		for _, policy := range endpoint.Policies {
+			policyStr := []string{policy.Name, policy.Namespace, string(policy.UID)}
+			policies = append(policies, policyStr)
+		}
+		// transform egress and ingress rules to string representation
+		egress, ingress := make([][]string, 0), make([][]string, 0)
+		for _, rule := range endpoint.Rules {
+			ruleStr := []string{rule.Name, rule.Namespace, string(rule.RuleIndex), string(rule.UID)}
+			if rule.Direction == v1beta1.DirectionIn {
+				ingress = append(ingress, ruleStr)
+			} else if rule.Direction == v1beta1.DirectionOut {
+				egress = append(egress, ruleStr)
+			} else {
+				panic("Unimplemented direction")
+			}
+		}
+		response := &Response{
+			Namespace:    endpoint.Namespace,
+			Name:         endpoint.Name,
+			Policies:     policies,
+			EgressRules:  egress,
+			IngressRules: ingress,
 		}
 		responses = append(responses, response)
 	}
@@ -45,29 +70,51 @@ func objectTransform(o interface{}) (interface{}, error) {
 }
 
 func listTransform(l interface{}) (interface{}, error) {
-	panic("unimplemented")
-	return objectTransform(l)
+	panic("list transform unimplemented")
 }
 
 func Transform(reader io.Reader, single bool) (interface{}, error) {
 	return transform.GenericFactory(
 		reflect.TypeOf(networkpolicy.EndpointQueryResponse{}),
-		reflect.TypeOf(networkpolicy.EndpointQueryResponse{}),
+		reflect.TypeOf([]networkpolicy.EndpointQueryResponse{}),
 		objectTransform,
 		listTransform,
 	)(reader, single)
 }
 
-func (r Response) GetTableHeader() []string {
-	return []string{"NAME"}
+func (r Response) GetTableLabel() []string {
+	return []string{"Endpoint " + r.Namespace + "/" + r.Name}
 }
 
-func (r Response) GetTableRow(maxColumnLength int) []string {
-	return []string{r.Applied.Name}
+func (r Response) GetPoliciesLabel(exist bool) []string {
+	if exist {
+		return []string{"Applied Policies:"}
+	}
+	return []string{"Applied Policies: None"}
 }
 
-func (r Response) SortRows() bool {
-	return true
+func (r Response) GetPoliciesHeader() []string {
+	return []string{"Name", "Namespace", "UID"}
 }
 
-var _ common.TableOutput = new(Response)
+func (r Response) GetEgressLabel(exist bool) []string {
+	if exist {
+		return []string{"Egress Rules:"}
+	}
+	return []string{"Egress Rules: None"}
+}
+
+func (r Response) GetEgressHeader() []string {
+	return []string{"Name", "Namespace", "Index"}
+}
+
+func (r Response) GetIngressLabel(exist bool) []string {
+	if exist {
+		return []string{"Ingress Rules: "}
+	}
+	return []string{"Ingress Rules: None"}
+}
+
+func (r Response) GetIngressHeader() []string {
+	return []string{"Name", "Namespace", "Index"}
+}
