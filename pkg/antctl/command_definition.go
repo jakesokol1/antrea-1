@@ -33,6 +33,7 @@ import (
 
 	"github.com/vmware-tanzu/antrea/pkg/antctl/runtime"
 	"github.com/vmware-tanzu/antrea/pkg/antctl/transform/common"
+	queryendpoint "github.com/vmware-tanzu/antrea/pkg/antctl/transform/endpoint"
 )
 
 type formatterType string
@@ -438,19 +439,25 @@ func (cd *commandDefinition) tableOutputForGetCommands(obj interface{}, writer i
 			return true
 		})
 	}
+	// Construct the table.
+	//TODO: is this a correct assessment of what these numbers represent?
+	numRows, numCol := len(list) + 1, len(args)
+	widths := getColumnWidths(numRows, numCol, rows)
+	return constructTable(numRows, numCol, widths, rows, writer)
+}
 
-	numColumns := len(args)
-	widths := make([]int, numColumns)
-	if numColumns == 1 {
+func getColumnWidths(numRows int, numCol int, rows [][]string) []int {
+	widths := make([]int, numCol)
+	if numCol == 1 {
 		// Do not limit the column length for a single column table.
 		// This is for the case a single column table can have long rows which cannot
 		// fit into a single line (one example is the ovsflows outputs).
 		widths[0] = 0
 	} else {
 		// Get the width of every column.
-		for j := 0; j < numColumns; j++ {
+		for j := 0; j < numCol; j++ {
 			width := len(rows[0][j])
-			for i := 1; i < len(list)+1; i++ {
+			for i := 1; i < numRows; i++ {
 				if len(rows[i][j]) == 0 {
 					rows[i][j] = "<NONE>"
 				}
@@ -464,11 +471,13 @@ func (cd *commandDefinition) tableOutputForGetCommands(obj interface{}, writer i
 			}
 		}
 	}
+	return widths
+}
 
-	// Construct the table.
+func constructTable(numRows int, numCol int, widths []int, rows [][]string, writer io.Writer) error {
 	var buffer bytes.Buffer
-	for i := 0; i < len(list)+1; i++ {
-		for j := 0; j < len(args); j++ {
+	for i := 0; i < numRows; i++ {
+		for j := 0; j < numCol; j++ {
 			val := ""
 			if j != 0 {
 				val = " " + val
@@ -488,9 +497,77 @@ func (cd *commandDefinition) tableOutputForGetCommands(obj interface{}, writer i
 	return nil
 }
 
-//TODO: can I use the tableOutputForGetCommands func or should I implement one specific to query?
 func (cd *commandDefinition) tableOutputForQueryCommands(obj interface{}, writer io.Writer) error {
-	return cd.tableOutputForGetCommands(obj, writer)
+	responses := obj.([]*queryendpoint.Response)
+	// constructs responses for sub tables
+	constructSubTable := func(rows [][]string) error {
+		numRows, numCol := len(rows), len(rows[0])
+		widths := getColumnWidths(numRows, numCol, rows)
+		if err := constructTable(numRows, numCol, widths, rows, writer); err != nil {
+			return err
+		}
+		return nil
+	}
+	// rows represent the low level representation of the entire printed response
+	rows := make([][]string, 0)
+	// print each response as its own table (each representing an unique endpoint)
+	for _, response := range responses {
+		// add table label
+		rows = append(rows, response.GetTableLabel())
+		// flush changes, reset rows
+		if err := constructSubTable(rows); err != nil {
+			return err
+		}
+		rows := make([][]string, 0)
+		// add applied policies
+		rows = append(rows, response.GetPoliciesLabel(len(response.Policies) > 0))
+		if err := constructSubTable(rows); err != nil {
+			return err
+		}
+		rows = make([][]string, 0)
+		rows = append(rows, response.GetPoliciesHeader())
+		for _, el := range response.Policies {
+			rows = append(rows, el)
+		}
+		if len(response.Policies) > 0 {
+			if err := constructSubTable(rows); err != nil {
+				return err
+			}
+		}
+		rows = make([][]string, 0)
+		// add egress and ingress rules
+		rows = append(rows, response.GetEgressLabel(len(response.EgressRules) > 0))
+		if err := constructSubTable(rows); err != nil {
+			return err
+		}
+		rows = make([][]string, 0)
+		rows = append(rows, response.GetEgressHeader())
+		for _, el := range response.EgressRules {
+			rows = append(rows, el)
+		}
+		if len(response.EgressRules) > 0 {
+			if err := constructSubTable(rows); err != nil {
+				return err
+			}
+		}
+		rows = make([][]string, 0)
+		rows = append(rows, response.GetIngressLabel(len(response.IngressRules) > 0))
+		if err := constructSubTable(rows); err != nil {
+			return err
+		}
+		rows = make([][]string, 0)
+		rows = append(rows, response.GetIngressHeader())
+		for _, el := range response.IngressRules {
+			rows = append(rows, el)
+		}
+		if len(response.IngressRules) > 0 {
+			if err := constructSubTable(rows); err != nil {
+				return err
+			}
+		}
+		rows = make([][]string, 0)
+	}
+	return nil
 }
 
 func (cd *commandDefinition) tableOutput(obj interface{}, writer io.Writer) error {
@@ -631,11 +708,6 @@ func (cd *commandDefinition) collectFlags(cmd *cobra.Command, args []string) (ma
 // checks the args according to argOption and flags.
 func (cd *commandDefinition) newCommandRunE(c *client) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		//TODO: add parameter to access args
-		fmt.Println(args)
-		for _, arg := range args {
-			fmt.Println(arg)
-		}
 		argMap, err := cd.collectFlags(cmd, args)
 		if err != nil {
 			return err
