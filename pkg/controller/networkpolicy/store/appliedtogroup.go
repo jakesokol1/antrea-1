@@ -183,7 +183,7 @@ func NewAppliedToGroupStore() storage.Interface {
 			for _, podSet := range atg.PodsByNode {
 				for _, pod := range podSet {
 					name, namespace := pod.Pod.Name, pod.Pod.Namespace
-					keys = append(keys, name + "/" + namespace)
+					keys = append(keys, name+"/"+namespace)
 				}
 			}
 			return keys, nil

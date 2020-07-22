@@ -61,7 +61,6 @@ type Policy struct {
 	selector metav1.LabelSelector `json:"selector,omitempty"`
 }
 
-// Rule holds
 type Rule struct {
 	PolicyRef
 	Direction networkingv1beta1.Direction `json:"direction,omitempty"`
@@ -76,7 +75,12 @@ func NewEndpointQueryReplier(networkPolicyController *NetworkPolicyController) *
 	return n
 }
 
-//Query functions
+/*
+QueryNetworkPolicies returns kubernetes network policy references relevant to the selected network endpoint. Relevant
+policies fall into three categories: applied policies (Policies in Endpoint type) are policies which directly apply to
+an endpoint, egress and ingress rules (Rules in Endpoint type) are policies which reference the endpoint in an ingress/
+egress rule respectively.
+*/
 func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName string) (*EndpointQueryResponse, error) {
 	// check if namespace and podName select an existing pod
 	_, err := eq.networkPolicyController.podInformer.Lister().Pods(namespace).Get(podName)
@@ -87,13 +91,13 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	}
 	type ruleTemp struct {
 		policy *antreatypes.NetworkPolicy
-		index int
+		index  int
 	}
 	// create network policies categories
 	applied, ingress, egress := make([]*antreatypes.NetworkPolicy, 0), make([]*ruleTemp, 0),
 		make([]*ruleTemp, 0)
 	// get all appliedToGroups using pod index, then get applied policies using appliedToGroup
-	appliedToGroups, err := eq.networkPolicyController.appliedToGroupStore.GetByIndex(store.PodIndex, podName + "/" + namespace)
+	appliedToGroups, err := eq.networkPolicyController.appliedToGroupStore.GetByIndex(store.PodIndex, podName+"/"+namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +112,7 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		}
 	}
 	// get all addressGroups using pod index, then get ingress and egress policies using addressGroup
-	addressGroups, err := eq.networkPolicyController.addressGroupStore.GetByIndex(store.PodIndex, podName + "/" + namespace)
+	addressGroups, err := eq.networkPolicyController.addressGroupStore.GetByIndex(store.PodIndex, podName+"/"+namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +149,6 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		}
 		responsePolicies = append(responsePolicies, responsePolicy)
 	}
-	// make rules
 	responseRules := make([]Rule, 0)
 	// create rules based on egress and ingress policies
 	for _, internalPolicy := range egress {
@@ -172,13 +175,12 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 		}
 		responseRules = append(responseRules, newRule)
 	}
-	// endpoint
+	// for now, selector only selects a single endpoint (pod, namespace)
 	endpoint := Endpoint{
 		Namespace: namespace,
 		Name:      podName,
 		Policies:  responsePolicies,
 		Rules:     responseRules,
 	}
-
 	return &EndpointQueryResponse{[]Endpoint{endpoint}}, nil
 }
