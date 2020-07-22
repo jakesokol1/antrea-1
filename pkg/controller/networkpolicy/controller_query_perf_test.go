@@ -77,7 +77,7 @@ func TestLargeScaleEndpointQuerySinglePolicy(t *testing.T) {
 		return namespaces, networkPolicies, pods
 	}
 	namespaces, networkPolicies, pods := getXObjects(100000, getObjects)
-	testQueryEndpoint(t, time.Second, namespaces, networkPolicies, pods, 1)
+	testQueryEndpoint(t, 3*time.Second, namespaces, networkPolicies, pods, 1)
 }
 
 /*
@@ -128,9 +128,8 @@ func TestLargeScaleEndpointQueryManyPolicies(t *testing.T) {
 		return namespaces, networkPolicies, pods
 	}
 	namespaces, networkPolicies, pods := getXObjects(10000, getObjects)
-	testQueryEndpoint(t, 10*time.Second, namespaces[0:1], networkPolicies, pods, 10000)
+	testQueryEndpoint(t, 15*time.Second, namespaces[0:1], networkPolicies, pods, 10000)
 }
-
 
 func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod, responseLength int) {
 	// Stat the maximum heap allocation.
@@ -169,48 +168,6 @@ func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces 
 NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)    
 %-12d %-7d %-19d %-10.2f %-12d 
 `, len(namespaces), len(pods), len(networkPolicies), float64(executionTime)/float64(time.Second), maxAlloc/1024/1024)
-}
-
-func genUniqueRuntimeObjects(numObjects int) (namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod) {
-	namespaceID := rand.String(8)
-	namespaces, networkPolicies, pods = make([]*v1.Namespace, 0), make([]*networkingv1.NetworkPolicy, 0), make([]*v1.Pod, 0)
-	for i := 0; i < numObjects; i++ {
-		namespace := &v1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: namespaceID, Labels: map[string]string{"app": namespaceID}},
-		}
-		networkPolicy := &networkingv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespaceID, Name: "np-" + string(i), UID: types.UID(uuid.New().String())},
-			Spec: networkingv1.NetworkPolicySpec{
-				PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app-1": "scale-1"}},
-				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
-				Ingress: []networkingv1.NetworkPolicyIngressRule{
-					{
-						From: []networkingv1.NetworkPolicyPeer{
-							{
-								PodSelector: &metav1.LabelSelector{
-									MatchLabels: map[string]string{"app-1": "scale-1"},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-		pod := &v1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: namespaceID,
-				Name: "pod" + string(i),
-				UID: types.UID(uuid.New().String()),
-				Labels: map[string]string{"app-1": "scale-1"},
-			},
-			Spec:       v1.PodSpec{NodeName: getRandomNodeName()},
-			Status:     v1.PodStatus{PodIP: getRandomIP()},
-		}
-		namespaces = append(namespaces, namespace)
-		networkPolicies = append(networkPolicies, networkPolicy)
-		pods = append(pods, pod)
-	}
-	return namespaces, networkPolicies, pods
 }
 
 /*

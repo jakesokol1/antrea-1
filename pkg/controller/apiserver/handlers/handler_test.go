@@ -141,6 +141,8 @@ func TestInvalidArguments(t *testing.T) {
 
 }
 
+// TestSinglePolicyResponse tests how the handler function responds when the user passes in a endpoint with a
+// single policy response
 func TestSinglePolicyResponse(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	defer mockCtrl.Finish()
@@ -173,6 +175,8 @@ func TestSinglePolicyResponse(t *testing.T) {
 
 }
 
+// TestMultiPolicyResponse tests how the handler function responds when the user passes in a endpoint with
+// multiple policy responses
 func TestMultiPolicyResponse(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	defer mockCtrl.Finish()

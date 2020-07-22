@@ -82,11 +82,10 @@ var groupCommands = map[commandGroup]*cobra.Command{
 		Short: "Get the status or resource of a topic",
 		Long:  "Get the status or resource of a topic",
 	},
-	//TODO
 	query: {
 		Use:   "query",
-		Short: "TODO",
-		Long:  "TODO",
+		Short: "List relevant resources to an endpoint or policy",
+		Long:  "List relevant resources to an endpoint or policy",
 	},
 }
 
@@ -250,8 +249,6 @@ func (cd *commandDefinition) applySubCommandToRoot(root *cobra.Command, client *
 	cmd.RunE = cd.newCommandRunE(client)
 }
 
-//TODO: make sure to validate query
-// validate checks if the commandDefinition is valid.
 func (cd *commandDefinition) validate() []error {
 	var errs []error
 	if len(cd.use) == 0 {
@@ -441,7 +438,7 @@ func (cd *commandDefinition) tableOutputForGetCommands(obj interface{}, writer i
 	}
 	// Construct the table.
 	//TODO: is this a correct assessment of what these numbers represent?
-	numRows, numCol := len(list) + 1, len(args)
+	numRows, numCol := len(list)+1, len(args)
 	widths := getColumnWidths(numRows, numCol, rows)
 	return constructTable(numRows, numCol, widths, rows, writer)
 }
@@ -497,10 +494,41 @@ func constructTable(numRows int, numCol int, widths []int, rows [][]string, writ
 	return nil
 }
 
+/*
+tableOutputForQueryCommands implements printing sub tables (list of tables) for each response, utilizing constructTable
+with multiplicity. tableOutputForGetCommands is the only other user of constructTable, though only one table is printed for
+each response.
+
+*Note this method can be generalized and refactored for any future work which prints sub tables (list of tables).
+*/
 func (cd *commandDefinition) tableOutputForQueryCommands(obj interface{}, writer io.Writer) error {
 	responses := obj.([]*queryendpoint.Response)
-	// constructs responses for sub tables
-	constructSubTable := func(rows [][]string) error {
+	// intermittent new line buffer
+	var buffer bytes.Buffer
+	newLine := func() error {
+		buffer.WriteString("\n")
+		if _, err := io.Copy(writer, &buffer); err != nil {
+			return fmt.Errorf("error when copy output into writer: %w", err)
+		}
+		buffer.Reset()
+		return nil
+	}
+	// sort rows of sub table
+	sortRows := func(rows [][]string) {
+		body := rows[1:]
+		sort.Slice(body, func(i, j int) bool {
+			for k := range body[i] {
+				if body[i][k] != body[j][k] {
+					return body[i][k] < body[j][k]
+				}
+			}
+			return true
+		})
+	}
+	// constructs sub tables for responses
+	constructSubTable := func(header [][]string, body [][]string) error {
+		rows := append(header, body...)
+		sortRows(rows)
 		numRows, numCol := len(rows), len(rows[0])
 		widths := getColumnWidths(numRows, numCol, rows)
 		if err := constructTable(numRows, numCol, widths, rows, writer); err != nil {
@@ -508,64 +536,42 @@ func (cd *commandDefinition) tableOutputForQueryCommands(obj interface{}, writer
 		}
 		return nil
 	}
-	// rows represent the low level representation of the entire printed response
-	rows := make([][]string, 0)
-	// print each response as its own table (each representing an unique endpoint)
+	// construct sections of sub tables for responses (applied, ingress, egress)
+	constructSection := func(label [][]string, header [][]string, body [][]string, nonZero bool) error {
+		if err := constructSubTable(label, [][]string{}); err != nil {
+			return err
+		}
+		if nonZero {
+			if err := constructSubTable(header, body); err != nil {
+				return err
+			}
+		}
+		if err := newLine(); err != nil {
+			return err
+		}
+		return nil
+	}
+	// print each response as its own table (each representing a unique endpoint)
 	for _, response := range responses {
-		// add table label
-		rows = append(rows, response.GetTableLabel())
-		// flush changes, reset rows
-		if err := constructSubTable(rows); err != nil {
+		// table label
+		if err := constructSubTable([][]string{response.GetTableLabel()}, [][]string{}); err != nil {
 			return err
 		}
-		rows := make([][]string, 0)
-		// add applied policies
-		rows = append(rows, response.GetPoliciesLabel(len(response.Policies) > 0))
-		if err := constructSubTable(rows); err != nil {
+		// applied policies
+		nonZero := len(response.Policies) > 0
+		if err := constructSection([][]string{response.GetPoliciesLabel(nonZero)}, [][]string{response.GetPoliciesHeader()}, response.Policies, nonZero); err != nil {
 			return err
 		}
-		rows = make([][]string, 0)
-		rows = append(rows, response.GetPoliciesHeader())
-		for _, el := range response.Policies {
-			rows = append(rows, el)
-		}
-		if len(response.Policies) > 0 {
-			if err := constructSubTable(rows); err != nil {
-				return err
-			}
-		}
-		rows = make([][]string, 0)
-		// add egress and ingress rules
-		rows = append(rows, response.GetEgressLabel(len(response.EgressRules) > 0))
-		if err := constructSubTable(rows); err != nil {
+		// egress rules
+		nonZero = len(response.EgressRules) > 0
+		if err := constructSection([][]string{response.GetEgressLabel(nonZero)}, [][]string{response.GetEgressHeader()}, response.EgressRules, nonZero); err != nil {
 			return err
 		}
-		rows = make([][]string, 0)
-		rows = append(rows, response.GetEgressHeader())
-		for _, el := range response.EgressRules {
-			rows = append(rows, el)
-		}
-		if len(response.EgressRules) > 0 {
-			if err := constructSubTable(rows); err != nil {
-				return err
-			}
-		}
-		rows = make([][]string, 0)
-		rows = append(rows, response.GetIngressLabel(len(response.IngressRules) > 0))
-		if err := constructSubTable(rows); err != nil {
+		// ingress rules
+		nonZero = len(response.IngressRules) > 0
+		if err := constructSection([][]string{response.GetIngressLabel(nonZero)}, [][]string{response.GetIngressHeader()}, response.IngressRules, nonZero); err != nil {
 			return err
 		}
-		rows = make([][]string, 0)
-		rows = append(rows, response.GetIngressHeader())
-		for _, el := range response.IngressRules {
-			rows = append(rows, el)
-		}
-		if len(response.IngressRules) > 0 {
-			if err := constructSubTable(rows); err != nil {
-				return err
-			}
-		}
-		rows = make([][]string, 0)
 	}
 	return nil
 }
@@ -658,7 +664,6 @@ func (cd *commandDefinition) output(resp io.Reader, writer io.Writer, ft formatt
 			return fmt.Errorf("error when decoding response: %w", err)
 		}
 	} else {
-		//TODO: call addonTransfrom with arguments
 		obj, err = addonTransform(resp, single)
 		if err != nil {
 			return fmt.Errorf("error when doing local transform: %w", err)

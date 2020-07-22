@@ -322,10 +322,11 @@ var CommandList = &commandList{
 		{
 			use:     "endpoint",
 			aliases: []string{"endpoints"},
-			short:   "Query network policies relevant to an endpoint.",
-			long:    "TODO",
-			//TODO: fill in examples
-			example:      "TODO",
+			short:   "Filter network policies relevant to an endpoint.",
+			long:    "Filter network policies relevant to an endpoint into three categories: network policies which apply to the endpoint and policies which reference the endpoint by an ingress or egress policy.",
+			example: `  Query network policies given pod and namespace
+  $ antctl query endpoint -p pod1 -n ns1
+`,
 			commandGroup: query,
 			controllerEndpoint: &endpoint{
 				nonResourceEndpoint: &nonResourceEndpoint{
@@ -333,12 +334,12 @@ var CommandList = &commandList{
 					params: []flagInfo{
 						{
 							name:      "namespace",
-							usage:     "Namespace of the entity",
+							usage:     "Namespace of the entity (required)",
 							shorthand: "n",
 						},
 						{
 							name:      "pod",
-							usage:     "Name of a local Pod. If present, Namespace must be provided.",
+							usage:     "Name of a local Pod (required)",
 							shorthand: "p",
 						},
 					},

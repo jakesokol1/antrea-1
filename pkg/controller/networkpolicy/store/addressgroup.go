@@ -170,7 +170,7 @@ func NewAddressGroupStore() storage.Interface {
 			keys := make([]string, 0, len(ag.Pods))
 			for _, pod := range ag.Pods {
 				name, namespace := pod.Pod.Name, pod.Pod.Namespace
-				keys = append(keys, name + "/" + namespace)
+				keys = append(keys, name+"/"+namespace)
 			}
 			return keys, nil
 		},

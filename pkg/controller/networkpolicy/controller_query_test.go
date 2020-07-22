@@ -33,7 +33,7 @@ var pods = []v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "podA",
 			Namespace: "testNamespace",
-			Labels: map[string]string{"foo": "bar"},
+			Labels:    map[string]string{"foo": "bar"},
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{{
@@ -55,7 +55,7 @@ var pods = []v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "podB",
 			Namespace: "testNamespace",
-			Labels: map[string]string{"foo": "bar"},
+			Labels:    map[string]string{"foo": "bar"},
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{{
@@ -83,7 +83,7 @@ var pods = []v1.Pod{
 var policies = []networkingv1.NetworkPolicy{
 	{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-ingress-egress",
+			Name:      "test-ingress-egress",
 			Namespace: "testNamespace",
 		},
 		Spec: networkingv1.NetworkPolicySpec{
@@ -211,18 +211,6 @@ func TestSingleAppliedIngressEgressPolicy(t *testing.T) {
 	// test ingress policy response
 	assert.Equal(t, v1beta1.DirectionIn, response1.Endpoints[0].Rules[1].Direction)
 	assert.Equal(t, "test-ingress-egress", response1.Endpoints[0].Rules[1].Name)
-}
-
-// TestSingleEgressPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
-// a pod which has a single networkpolicy which defines an egress policy from it.
-func TestSingleEgressPolicy(t *testing.T) {
-	assert.Fail(t, "unimplemented")
-}
-
-// TestSingleIngressPolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
-// a pod which has a single networkpolicy which defines an ingress policy from it.
-func TestSingleIngressPolicy(t *testing.T) {
-	assert.Fail(t, "unimplemented")
 }
 
 // TestMultiplePolicy tests the result of QueryNetworkPolicy when the selector (right now pod, namespace) selects
