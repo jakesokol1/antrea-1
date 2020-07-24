@@ -20,7 +20,6 @@ import (
 	"github.com/vmware-tanzu/antrea/pkg/apis/networking/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"testing"
@@ -179,9 +178,11 @@ func TestInvalidSelector(t *testing.T) {
 	_, endpointQuerier := makeControllerAndEndpointQueryReplier()
 	// test appropriate response to QueryNetworkPolices
 	namespace, pod := "non-existing-namespace", "non-existing-pod"
-	_, err := endpointQuerier.QueryNetworkPolicies(namespace, pod)
-
-	assert.Equal(t, errors.NewNotFound(v1.Resource("pod"), pod), err, "expected not found error")
+	response, err := endpointQuerier.QueryNetworkPolicies(namespace, pod)
+	if response != nil {
+		assert.Fail(t, "expected nil endpoints")
+	}
+	assert.Equal(t, nil, err, "expected not nil error")
 }
 
 // TestNoPolicy tests the result of QueryNetworkPolicy when no policies are relevant to the endpoint
@@ -220,7 +221,7 @@ func TestMultiplePolicy(t *testing.T) {
 	namespace1, pod1 := "testNamespace", "podA"
 	response, err := endpointQuerier.QueryNetworkPolicies(namespace1, pod1)
 	require.Equal(t, nil, err)
-	assert.True(t, response.Endpoints[0].Policies[0].Name == "test-egress" ||
+	assert.True(t, response.Endpoints[0].Policies[0].Name == "default-deny-egress" ||
 		response.Endpoints[0].Policies[0].Name == "test-ingress-egress")
 	assert.True(t, response.Endpoints[0].Policies[1].Name == "default-deny-egress" ||
 		response.Endpoints[0].Policies[1].Name == "test-ingress-egress")

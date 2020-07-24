@@ -85,9 +85,7 @@ func (eq EndpointQueryReplier) QueryNetworkPolicies(namespace string, podName st
 	// check if namespace and podName select an existing pod
 	_, err := eq.networkPolicyController.podInformer.Lister().Pods(namespace).Get(podName)
 	if err != nil {
-		return &EndpointQueryResponse{
-			Endpoints: nil,
-		}, nil
+		return nil, nil
 	}
 	type ruleTemp struct {
 		policy *antreatypes.NetworkPolicy
