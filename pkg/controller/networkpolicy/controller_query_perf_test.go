@@ -30,57 +30,6 @@ import (
 )
 
 /*
-TestLargeScaleEndpointQuery tests the execution time and the memory usage of computing a scale
-of 100k Namespaces, 100k NetworkPolicies, 100k Pods, where query returns a single policy.
-
-NAMESPACES   PODS    NETWORK-POLICIES    TIME(s)    MEMORY(M)
-100000       100000  100000              0.01       2264
-
-The metrics are not accurate under the race detector, and will be skipped when testing with "-race".
-*/
-func TestLargeScaleEndpointQuerySinglePolicy(t *testing.T) {
-	// getObjects taken directly from networkpolicy_controller_perf_test.go
-	getObjects := func() ([]*v1.Namespace, []*networkingv1.NetworkPolicy, []*v1.Pod) {
-		namespace := rand.String(8)
-		namespaces := []*v1.Namespace{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: namespace, Labels: map[string]string{"app": namespace}},
-			},
-		}
-		networkPolicies := []*networkingv1.NetworkPolicy{
-			{
-				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "np-1", UID: types.UID(uuid.New().String())},
-				Spec: networkingv1.NetworkPolicySpec{
-					PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app-1": "scale-1"}},
-					PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
-					Ingress: []networkingv1.NetworkPolicyIngressRule{
-						{
-							From: []networkingv1.NetworkPolicyPeer{
-								{
-									PodSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{"app-1": "scale-1"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-		pods := []*v1.Pod{
-			{
-				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "pod1", UID: types.UID(uuid.New().String()), Labels: map[string]string{"app-1": "scale-1"}},
-				Spec:       v1.PodSpec{NodeName: getRandomNodeName()},
-				Status:     v1.PodStatus{PodIP: getRandomIP()},
-			},
-		}
-		return namespaces, networkPolicies, pods
-	}
-	namespaces, networkPolicies, pods := getXObjects(100000, getObjects)
-	testQueryEndpoint(t, 3*time.Second, namespaces, networkPolicies, pods, 1)
-}
-
-/*
 TestLargeScaleEndpointQueryManyPolicies tests the execution time and the memory usage of computing a scale
 of 10k Namespaces, 10k NetworkPolicies, 10k Pods, where query returns every policy (applied + ingress).
 
@@ -128,7 +77,7 @@ func TestLargeScaleEndpointQueryManyPolicies(t *testing.T) {
 		return namespaces, networkPolicies, pods
 	}
 	namespaces, networkPolicies, pods := getXObjects(10000, getObjects)
-	testQueryEndpoint(t, 15*time.Second, namespaces[0:1], networkPolicies, pods, 10000)
+	testQueryEndpoint(t, 25*time.Second, namespaces[0:1], networkPolicies, pods, 10000)
 }
 
 func testQueryEndpoint(t *testing.T, maxExecutionTime time.Duration, namespaces []*v1.Namespace, networkPolicies []*networkingv1.NetworkPolicy, pods []*v1.Pod, responseLength int) {

@@ -33,7 +33,7 @@ func HandleFunc(eq networkpolicy.EndpointQuerier) http.HandlerFunc {
 		}
 		// query endpoint and handle response errors
 		endpointQueryResponse, err := eq.QueryNetworkPolicies(namespace, podName)
-		if err == nil && endpointQueryResponse.Endpoints == nil {
+		if err == nil && endpointQueryResponse == nil {
 			http.Error(w, "could not find any endpoints matching your selection", http.StatusNotFound)
 			return
 		}

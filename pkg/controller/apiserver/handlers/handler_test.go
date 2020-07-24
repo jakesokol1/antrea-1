@@ -129,10 +129,8 @@ func TestInvalidArguments(t *testing.T) {
 			expectedStatus: http.StatusNotFound,
 			argsMock:       []string{namespace, pod},
 			mockQueryResponse: response{
-				response: &networkpolicy.EndpointQueryResponse{
-					Endpoints: nil,
-				},
-				error: errors.NewNotFound(v1.Resource("pod"), "pod"),
+				response: nil,
+				error: nil,
 			},
 		},
 	}
