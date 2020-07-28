@@ -180,10 +180,16 @@ func NewAppliedToGroupStore() storage.Interface {
 				return []string{}, nil
 			}
 			keys := make([]string, 0)
-			for _, podSet := range atg.PodsByNode {
-				for _, pod := range podSet {
-					name, namespace := pod.Pod.Name, pod.Pod.Namespace
-					keys = append(keys, name+"/"+namespace)
+			if atg.PodsByNode != nil {
+				for _, podSet := range atg.PodsByNode {
+					if podSet != nil {
+						for _, pod := range podSet {
+							if pod != nil && pod.Pod != nil {
+								name, namespace := pod.Pod.Name, pod.Pod.Namespace
+								keys = append(keys, name+"/"+namespace)
+							}
+						}
+					}
 				}
 			}
 			return keys, nil
