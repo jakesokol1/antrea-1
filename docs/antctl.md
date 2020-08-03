@@ -20,6 +20,7 @@ running in two different modes:
   - [Dumping Pod network interface information](#dumping-pod-network-interface-information)
   - [Dumping OVS flows](#dumping-ovs-flows)
   - [OVS packet tracing](#ovs-packet-tracing)
+  - [Query endpoint](#query-endpoint)
 
 ## Installation
 
@@ -313,3 +314,45 @@ result: |
   Megaflow: recirc_id=0x54,eth,ip,in_port=1,nw_frag=no
   Datapath actions: 3
 ```
+
+### Antctl query endpoint
+
+Antrea supports querying network endpoints in "controller mode". Antrea network endpoints are specified by a pod name 
+and a namespace. An endpoint query returns network policy information relevant to the endpoint. 
+
+```bash
+antctl query endpoint --pod <pod-name> --namespaced <namespace>
+```
+
+Network policies relevant to an endpoint fall in three categories
+
+- Applied policies: Kubernetes Network Policy objects which directly apply to the selected endpoint (endpoint is selected
+within the `podSelector` of the policy `spec` field)
+
+- Egress Rules: Kubernetes Network Policy objects which reference the selected endpoint in an Egress rule of the policy 
+(endpoint is selected within the `podSelector` of the `to` field of the `egress` field)
+
+- Ingress Rules: Kubernetes Network Policy objects which reference the selected endpoint in an Ingress rule of the policy
+(endpoint is selected within the `podSelector` of the `from` field of the `ingress` field)
+
+Here is sample output for an endpoint query in which the endpoint is referenced by a Kubernetes policy in all three of
+the possible fields.
+
+```bash
+root@k8s-node-master:/# antctl query endpoint --pod busybox --namespace default
+Endpoint default/busybox
+Applied Policies:
+Name         Namespace UID
+access-nginx default   2eb97203-c68c-4a57-87cd-337aa682a39a
+
+Egress Rules:
+Name         Namespace Index UID
+access-nginx default   1     2eb97203-c68c-4a57-87cd-337aa682a39a
+
+Ingress Rules:
+Name         Namespace Index UID
+access-nginx default   0     2eb97203-c68c-4a57-87cd-337aa682a39a
+```
+
+Note: though antctl query endpoint runs in "controller mode", it must be run within Antrea Controller Pod. Support will 
+soon be added for out-of-cluster commands.
